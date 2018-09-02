@@ -12,7 +12,7 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct IncrDAG<T: Hash + Eq> {
-    nodes: HashMap<T, usize>,
+    node_keys: HashMap<T, usize>,
     node_data: Slab<NodeData>,
     last_topo_value: u32,
 }
@@ -47,7 +47,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl<T: Hash + Eq> IncrDAG<T> {
     pub fn new() -> Self {
         IncrDAG {
-            nodes: HashMap::new(),
+            node_keys: HashMap::new(),
             node_data: Slab::new(),
             last_topo_value: 0,
         }
@@ -62,7 +62,7 @@ impl<T: Hash + Eq> IncrDAG<T> {
         let node_entry = self.node_data.vacant_entry();
         let key = node_entry.key();
 
-        self.nodes.insert(node, key);
+        self.node_keys.insert(node, key);
         node_entry.insert(NodeData::new(next_topo_value));
 
         self.last_topo_value = next_topo_value;
@@ -73,17 +73,17 @@ impl<T: Hash + Eq> IncrDAG<T> {
     pub fn contains_node<Q>(&self, node: &Q) -> bool
     where
         T: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
-        self.nodes.contains_key(node)
+        self.node_keys.contains_key(node)
     }
 
     pub fn delete_node<Q>(&mut self, node: &Q) -> bool
     where
         T: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
-        if let Some((_, key)) = self.nodes.remove_entry(node) {
+        if let Some((_, key)) = self.node_keys.remove_entry(node) {
             // Remove associated data
             let data = self.node_data.remove(key);
 
@@ -110,8 +110,8 @@ impl<T: Hash + Eq> IncrDAG<T> {
     pub fn add_dependency<Q, R>(&mut self, prec: &Q, succ: &R) -> Result<bool>
     where
         T: Borrow<Q> + Borrow<R>,
-        Q: Hash + Eq,
-        R: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
+        R: Hash + Eq + ?Sized,
     {
         let (prec_key, succ_key) = self.get_dep_keys(prec, succ)?;
 
@@ -149,8 +149,8 @@ impl<T: Hash + Eq> IncrDAG<T> {
     pub fn contains_dependency<Q, R>(&self, prec: &Q, succ: &R) -> bool
     where
         T: Borrow<Q> + Borrow<R>,
-        Q: Hash + Eq,
-        R: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
+        R: Hash + Eq + ?Sized,
     {
         let (prec_key, succ_key) = match self.get_dep_keys(prec, succ) {
             Ok(val) => val,
@@ -163,8 +163,8 @@ impl<T: Hash + Eq> IncrDAG<T> {
     pub fn delete_dependency<Q, R>(&mut self, prec: &Q, succ: &R) -> bool
     where
         T: Borrow<Q> + Borrow<R>,
-        Q: Hash + Eq,
-        R: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
+        R: Hash + Eq + ?Sized,
     {
         let (prec_key, succ_key) = match self.get_dep_keys(prec, succ) {
             Ok(val) => val,
@@ -178,16 +178,16 @@ impl<T: Hash + Eq> IncrDAG<T> {
     }
 
     pub fn size(&self) -> usize {
-        self.nodes.len()
+        self.node_keys.len()
     }
 
     fn get_dep_keys<Q, R>(&self, prec: &Q, succ: &R) -> Result<(usize, usize)>
     where
         T: Borrow<Q> + Borrow<R>,
-        Q: Hash + Eq,
-        R: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
+        R: Hash + Eq + ?Sized,
     {
-        match (self.nodes.get(prec), self.nodes.get(succ)) {
+        match (self.node_keys.get(prec), self.node_keys.get(succ)) {
             (Some(p), Some(s)) => Ok((*p, *s)),
             _ => Err(Error::NodeMissing),
         }
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn add_nodes_basic() {
-        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+        let mut dag = IncrDAG::new();
 
         dag.add_node("dog");
         dag.add_node("cat");
@@ -300,16 +300,16 @@ mod tests {
         dag.add_node("human");
 
         assert_eq!(dag.size(), 5);
-        assert!(dag.contains_node(&"dog"));
-        assert!(dag.contains_node(&"cat"));
-        assert!(dag.contains_node(&"mouse"));
-        assert!(dag.contains_node(&"lion"));
-        assert!(dag.contains_node(&"human"));
+        assert!(dag.contains_node("dog"));
+        assert!(dag.contains_node("cat"));
+        assert!(dag.contains_node("mouse"));
+        assert!(dag.contains_node("lion"));
+        assert!(dag.contains_node("human"));
     }
 
     #[test]
     fn add_nodes_duplicate() {
-        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+        let mut dag = IncrDAG::new();
 
         dag.add_node("dog");
         assert!(!dag.add_node("dog"));
@@ -319,14 +319,14 @@ mod tests {
 
         assert_eq!(dag.size(), 3);
 
-        assert!(dag.contains_node(&"dog"));
-        assert!(dag.contains_node(&"cat"));
-        assert!(dag.contains_node(&"human"));
+        assert!(dag.contains_node("dog"));
+        assert!(dag.contains_node("cat"));
+        assert!(dag.contains_node("human"));
     }
 
     #[test]
     fn delete_nodes() {
-        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+        let mut dag = IncrDAG::new();
 
         dag.add_node("dog");
         dag.add_node("cat");
@@ -334,18 +334,18 @@ mod tests {
 
         assert_eq!(dag.size(), 3);
 
-        assert!(dag.contains_node(&"dog"));
-        assert!(dag.contains_node(&"cat"));
-        assert!(dag.contains_node(&"human"));
+        assert!(dag.contains_node("dog"));
+        assert!(dag.contains_node("cat"));
+        assert!(dag.contains_node("human"));
 
-        assert!(dag.delete_node(&"human"));
+        assert!(dag.delete_node("human"));
         assert_eq!(dag.size(), 2);
-        assert!(!dag.contains_node(&"human"));
+        assert!(!dag.contains_node("human"));
     }
 
     #[test]
     fn add_dependency() {
-        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+        let mut dag = IncrDAG::new();
 
         dag.add_node("dog");
         dag.add_node("cat");
@@ -357,17 +357,17 @@ mod tests {
 
         assert_eq!(dag.size(), 7);
 
-        dag.add_dependency(&"lion", &"human").unwrap();
-        dag.add_dependency(&"lion", &"gazelle").unwrap();
+        dag.add_dependency("lion", "human").unwrap();
+        dag.add_dependency("lion", "gazelle").unwrap();
 
-        dag.add_dependency(&"human", &"dog").unwrap();
-        dag.add_dependency(&"human", &"cat").unwrap();
+        dag.add_dependency("human", "dog").unwrap();
+        dag.add_dependency("human", "cat").unwrap();
 
-        dag.add_dependency(&"dog", &"cat").unwrap();
-        dag.add_dependency(&"cat", &"mouse").unwrap();
+        dag.add_dependency("dog", "cat").unwrap();
+        dag.add_dependency("cat", "mouse").unwrap();
 
-        dag.add_dependency(&"gazelle", &"grass").unwrap();
+        dag.add_dependency("gazelle", "grass").unwrap();
 
-        dag.add_dependency(&"mouse", &"grass").unwrap();
+        dag.add_dependency("mouse", "grass").unwrap();
     }
 }
