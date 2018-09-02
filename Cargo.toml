@@ -4,3 +4,6 @@ version = "0.1.0"
 authors = ["Declan Kelly <dkelly.home@gmail.com>"]
 
 [dependencies]
+failure = "0.1.2"
+failure_derive = "0.1.2"
+slab = "0.4.1"
