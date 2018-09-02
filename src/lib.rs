@@ -1,3 +1,5 @@
+#![feature(nll)]
+
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
@@ -6,16 +8,26 @@ extern crate slab;
 use slab::Slab;
 use std::{
     borrow::Borrow,
-    collections::{HashMap, HashSet},
-    hash::Hash,
+    collections::{hash_map::RandomState, HashMap, HashSet},
+    hash::{BuildHasher, Hash, Hasher},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct IncrDAG<T: Hash + Eq> {
-    node_keys: HashMap<T, usize>,
+    random_state: RandomState,
+    // Map hash of key to node
+    key_to_node: HashMap<KeyHash, T>,
+    // Map hash of node to key
+    node_to_key: HashMap<NodeHash, usize>,
     node_data: Slab<NodeData>,
     last_topo_value: u32,
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+struct KeyHash(u64);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+struct NodeHash(u64);
 
 #[derive(Debug, Clone)]
 struct NodeData {
@@ -46,8 +58,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl<T: Hash + Eq> IncrDAG<T> {
     pub fn new() -> Self {
+        let random_state = RandomState::new();
         IncrDAG {
-            node_keys: HashMap::new(),
+            random_state,
+            node_to_key: HashMap::new(),
+            key_to_node: HashMap::new(),
             node_data: Slab::new(),
             last_topo_value: 0,
         }
@@ -58,11 +73,18 @@ impl<T: Hash + Eq> IncrDAG<T> {
             return false;
         }
 
+        let node_hash = self.hash_node(&node);
+
         let next_topo_value = self.last_topo_value + 1;
         let node_entry = self.node_data.vacant_entry();
         let key = node_entry.key();
 
-        self.node_keys.insert(node, key);
+        let mut state = self.random_state.build_hasher();
+
+        let key_hash = KeyHash(hash_value(&key, &mut state));
+
+        self.key_to_node.insert(key_hash, node);
+        self.node_to_key.insert(node_hash, key);
         node_entry.insert(NodeData::new(next_topo_value));
 
         self.last_topo_value = next_topo_value;
@@ -75,7 +97,8 @@ impl<T: Hash + Eq> IncrDAG<T> {
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        self.node_keys.contains_key(node)
+        let node_hash = self.hash_node(node);
+        self.node_to_key.contains_key(&node_hash)
     }
 
     pub fn delete_node<Q>(&mut self, node: &Q) -> bool
@@ -83,19 +106,24 @@ impl<T: Hash + Eq> IncrDAG<T> {
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        if let Some((_, key)) = self.node_keys.remove_entry(node) {
+        let node_hash = self.hash_node(node);
+        if let Some((_, key)) = self.node_to_key.remove_entry(&node_hash) {
+            // Remove inverse mapping
+            let key_hash = self.hash_key(key);
+            self.key_to_node.remove(&key_hash);
+
             // Remove associated data
             let data = self.node_data.remove(key);
 
             // Delete forward edges
-            for child in data.children.into_iter() {
+            for child in data.children {
                 if let Some(child_data) = self.node_data.get_mut(child) {
                     child_data.parents.remove(&key);
                 }
             }
 
             // Delete backward edges
-            for parent in data.parents.into_iter() {
+            for parent in data.parents {
                 if let Some(parent_data) = self.node_data.get_mut(parent) {
                     parent_data.children.remove(&key);
                 }
@@ -178,7 +206,7 @@ impl<T: Hash + Eq> IncrDAG<T> {
     }
 
     pub fn size(&self) -> usize {
-        self.node_keys.len()
+        self.node_to_key.len()
     }
 
     fn get_dep_keys<Q, R>(&self, prec: &Q, succ: &R) -> Result<(usize, usize)>
@@ -187,7 +215,12 @@ impl<T: Hash + Eq> IncrDAG<T> {
         Q: Hash + Eq + ?Sized,
         R: Hash + Eq + ?Sized,
     {
-        match (self.node_keys.get(prec), self.node_keys.get(succ)) {
+        let prec_hash = self.hash_node(prec);
+        let succ_hash = self.hash_node(succ);
+        match (
+            self.node_to_key.get(&prec_hash),
+            self.node_to_key.get(&succ_hash),
+        ) {
             (Some(p), Some(s)) => Ok((*p, *s)),
             _ => Err(Error::NodeMissing),
         }
@@ -208,7 +241,7 @@ impl<T: Hash + Eq> IncrDAG<T> {
             visited.insert(next_key);
             result.insert(next_key);
 
-            for child_key in self.node_data[next_key].children.iter() {
+            for child_key in &self.node_data[next_key].children {
                 let child_topo_value = self.node_data[*child_key].topo_value;
 
                 if child_topo_value == upper_bound {
@@ -239,7 +272,7 @@ impl<T: Hash + Eq> IncrDAG<T> {
             visited.insert(next_key);
             result.insert(next_key);
 
-            for parent_key in self.node_data[next_key].parents.iter() {
+            for parent_key in &self.node_data[next_key].parents {
                 let parent_topo_value = self.node_data[*parent_key].topo_value;
 
                 if !visited.contains(&parent_key) && lower_bound < parent_topo_value {
@@ -249,6 +282,22 @@ impl<T: Hash + Eq> IncrDAG<T> {
         }
 
         result
+    }
+
+    fn hash_node<Q>(&self, node: &Q) -> NodeHash
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let mut state = self.random_state.build_hasher();
+
+        NodeHash(hash_value(node, &mut state))
+    }
+
+    fn hash_key(&self, key: usize) -> KeyHash {
+        let mut state = self.random_state.build_hasher();
+
+        KeyHash(hash_value(&key, &mut state))
     }
 
     fn reorder_nodes(&mut self, change_forward: HashSet<usize>, change_backward: HashSet<usize>) {
@@ -267,12 +316,12 @@ impl<T: Hash + Eq> IncrDAG<T> {
         let mut all_keys = Vec::new();
         let mut all_topo_values = Vec::new();
 
-        for (key, topo_value) in change_forward.into_iter() {
+        for (key, topo_value) in change_forward {
             all_keys.push(key);
             all_topo_values.push(topo_value);
         }
 
-        for (key, topo_value) in change_backward.into_iter() {
+        for (key, topo_value) in change_backward {
             all_keys.push(key);
             all_topo_values.push(topo_value);
         }
@@ -283,6 +332,12 @@ impl<T: Hash + Eq> IncrDAG<T> {
             self.node_data[key].topo_value = topo_value;
         }
     }
+}
+
+fn hash_value<V: Hash + ?Sized, H: Hasher>(value: &V, state: &mut H) -> u64 {
+    value.hash(state);
+
+    state.finish()
 }
 
 #[cfg(test)]
