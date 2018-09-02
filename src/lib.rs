@@ -54,16 +54,20 @@ impl<T: Hash + Eq> IncrDAG<T> {
     }
 
     pub fn add_node(&mut self, node: T) -> bool {
+        if self.contains_node(&node) {
+            return false;
+        }
+
         let next_topo_value = self.last_topo_value + 1;
         let node_entry = self.node_data.vacant_entry();
         let key = node_entry.key();
 
-        let contained_old_node = self.nodes.insert(node, key).is_none();
+        self.nodes.insert(node, key);
         node_entry.insert(NodeData::new(next_topo_value));
 
         self.last_topo_value = next_topo_value;
 
-        contained_old_node
+        true
     }
 
     pub fn contains_node<Q>(&self, node: &Q) -> bool
@@ -79,21 +83,21 @@ impl<T: Hash + Eq> IncrDAG<T> {
         T: Borrow<Q>,
         Q: Hash + Eq,
     {
-        if let Some(key) = self.nodes.get(node) {
+        if let Some((_, key)) = self.nodes.remove_entry(node) {
             // Remove associated data
-            let data = self.node_data.remove(*key);
+            let data = self.node_data.remove(key);
 
             // Delete forward edges
             for child in data.children.into_iter() {
                 if let Some(child_data) = self.node_data.get_mut(child) {
-                    child_data.parents.remove(key);
+                    child_data.parents.remove(&key);
                 }
             }
 
             // Delete backward edges
             for parent in data.parents.into_iter() {
                 if let Some(parent_data) = self.node_data.get_mut(parent) {
-                    parent_data.children.remove(key);
+                    parent_data.children.remove(&key);
                 }
             }
 
@@ -112,14 +116,17 @@ impl<T: Hash + Eq> IncrDAG<T> {
         let (prec_key, succ_key) = self.get_dep_keys(prec, succ)?;
 
         // Insert forward edge
-        let prev_edge = self.node_data[prec_key].children.insert(succ_key);
+        let mut no_prev_edge = self.node_data[prec_key].children.insert(succ_key);
         let upper_bound = self.node_data[prec_key].topo_value;
 
         // Insert backward edge
-        self.node_data[succ_key].parents.insert(prec_key);
+        no_prev_edge = no_prev_edge && self.node_data[succ_key].parents.insert(prec_key);
         let lower_bound = self.node_data[succ_key].topo_value;
 
-        // TODO Add topo value update stuff
+        // If edge already exists short circuit
+        if !no_prev_edge {
+            return Ok(false);
+        }
 
         // If the affected region of the graph has non-zero size (i.e. the upper and
         // lower bound are equal) then perform an update to the topological ordering of
@@ -136,7 +143,7 @@ impl<T: Hash + Eq> IncrDAG<T> {
             self.reorder_nodes(change_forward, change_backward);
         }
 
-        Ok(prev_edge)
+        Ok(true)
     }
 
     pub fn contains_dependency<Q, R>(&self, prec: &Q, succ: &R) -> bool
@@ -275,5 +282,92 @@ impl<T: Hash + Eq> IncrDAG<T> {
         for (key, topo_value) in all_keys.into_iter().zip(all_topo_values.into_iter()) {
             self.node_data[key].topo_value = topo_value;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_nodes_basic() {
+        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+
+        dag.add_node("dog");
+        dag.add_node("cat");
+        dag.add_node("mouse");
+        dag.add_node("lion");
+        dag.add_node("human");
+
+        assert_eq!(dag.size(), 5);
+        assert!(dag.contains_node(&"dog"));
+        assert!(dag.contains_node(&"cat"));
+        assert!(dag.contains_node(&"mouse"));
+        assert!(dag.contains_node(&"lion"));
+        assert!(dag.contains_node(&"human"));
+    }
+
+    #[test]
+    fn add_nodes_duplicate() {
+        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+
+        dag.add_node("dog");
+        assert!(!dag.add_node("dog"));
+        dag.add_node("cat");
+        assert!(!dag.add_node("cat"));
+        dag.add_node("human");
+
+        assert_eq!(dag.size(), 3);
+
+        assert!(dag.contains_node(&"dog"));
+        assert!(dag.contains_node(&"cat"));
+        assert!(dag.contains_node(&"human"));
+    }
+
+    #[test]
+    fn delete_nodes() {
+        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+
+        dag.add_node("dog");
+        dag.add_node("cat");
+        dag.add_node("human");
+
+        assert_eq!(dag.size(), 3);
+
+        assert!(dag.contains_node(&"dog"));
+        assert!(dag.contains_node(&"cat"));
+        assert!(dag.contains_node(&"human"));
+
+        assert!(dag.delete_node(&"human"));
+        assert_eq!(dag.size(), 2);
+        assert!(!dag.contains_node(&"human"));
+    }
+
+    #[test]
+    fn add_dependency() {
+        let mut dag: IncrDAG<&'static str> = IncrDAG::new();
+
+        dag.add_node("dog");
+        dag.add_node("cat");
+        dag.add_node("mouse");
+        dag.add_node("lion");
+        dag.add_node("human");
+        dag.add_node("gazelle");
+        dag.add_node("grass");
+
+        assert_eq!(dag.size(), 7);
+
+        dag.add_dependency(&"lion", &"human").unwrap();
+        dag.add_dependency(&"lion", &"gazelle").unwrap();
+
+        dag.add_dependency(&"human", &"dog").unwrap();
+        dag.add_dependency(&"human", &"cat").unwrap();
+
+        dag.add_dependency(&"dog", &"cat").unwrap();
+        dag.add_dependency(&"cat", &"mouse").unwrap();
+
+        dag.add_dependency(&"gazelle", &"grass").unwrap();
+
+        dag.add_dependency(&"mouse", &"grass").unwrap();
     }
 }
