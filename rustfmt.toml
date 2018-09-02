@@ -1,0 +1,8 @@
+condense_wildcard_suffixes = true
+format_strings = true
+format_macro_matchers = true
+merge_imports = true
+match_block_trailing_comma = true
+reorder_impl_items = true
+use_field_init_shorthand = true
+wrap_comments = true
