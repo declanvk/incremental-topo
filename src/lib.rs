@@ -1,4 +1,4 @@
-// #![feature(nll)]
+#![feature(nll)]
 
 extern crate failure;
 #[macro_use]
