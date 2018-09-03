@@ -12,15 +12,15 @@ use slab::Slab;
 use std::{borrow::Borrow, collections::HashSet, hash::Hash, iter::Iterator};
 
 #[derive(Default, Debug, Clone)]
-pub struct IncrDAG<T: Hash + Eq, NodeId: Hash + Eq = usize> {
+pub struct IncrDAG<T: Hash + Eq, NodeId: Hash + Eq + Copy = usize> {
     node_keys: BiMap<T, usize>,
     node_data: Slab<NodeData<NodeId>>,
-    last_topo_value: u32,
+    last_topo_order: u32,
 }
 
 #[derive(Debug, Clone)]
 struct NodeData<NodeId: Hash + Eq> {
-    topo_value: u32,
+    topo_order: u32,
     parents: HashSet<NodeId>,
     children: HashSet<NodeId>,
 }
@@ -29,9 +29,9 @@ impl<NodeId> NodeData<NodeId>
 where
     NodeId: Hash + Eq,
 {
-    fn new(topo_value: u32) -> Self {
+    fn new(topo_order: u32) -> Self {
         NodeData {
-            topo_value,
+            topo_order,
             parents: HashSet::new(),
             children: HashSet::new(),
         }
@@ -53,7 +53,7 @@ impl<T: Hash + Eq> IncrDAG<T> {
         IncrDAG {
             node_keys: BiMap::new(),
             node_data: Slab::new(),
-            last_topo_value: 0,
+            last_topo_order: 0,
         }
     }
 
@@ -62,15 +62,15 @@ impl<T: Hash + Eq> IncrDAG<T> {
             return false;
         }
 
-        let next_topo_value = self.last_topo_value + 1;
+        let next_topo_order = self.last_topo_order + 1;
         let node_entry = self.node_data.vacant_entry();
         let key = node_entry.key();
 
         self.node_keys.insert(node, key);
 
-        node_entry.insert(NodeData::new(next_topo_value));
+        node_entry.insert(NodeData::new(next_topo_order));
 
-        self.last_topo_value = next_topo_value;
+        self.last_topo_order = next_topo_order;
 
         true
     }
@@ -106,6 +106,15 @@ impl<T: Hash + Eq> IncrDAG<T> {
                 }
             }
 
+            // TODO Fix inefficient compaction step
+            for key in self.node_keys.right_values() {
+                if let Some(node_data) = self.node_data.get_mut(*key) {
+                    if node_data.topo_order > data.topo_order {
+                        node_data.topo_order -= 1;
+                    }
+                }
+            }
+
             true
         } else {
             false
@@ -122,11 +131,11 @@ impl<T: Hash + Eq> IncrDAG<T> {
 
         // Insert forward edge
         let mut no_prev_edge = self.node_data[prec_key].children.insert(succ_key);
-        let upper_bound = self.node_data[prec_key].topo_value;
+        let upper_bound = self.node_data[prec_key].topo_order;
 
         // Insert backward edge
         no_prev_edge = no_prev_edge && self.node_data[succ_key].parents.insert(prec_key);
-        let lower_bound = self.node_data[succ_key].topo_value;
+        let lower_bound = self.node_data[succ_key].topo_order;
 
         // If edge already exists short circuit
         if !no_prev_edge {
@@ -217,13 +226,13 @@ impl<T: Hash + Eq> IncrDAG<T> {
             result.insert(next_key);
 
             for child_key in &self.node_data[next_key].children {
-                let child_topo_value = self.node_data[*child_key].topo_value;
+                let child_topo_order = self.node_data[*child_key].topo_order;
 
-                if child_topo_value == upper_bound {
+                if child_topo_order == upper_bound {
                     return Err(Error::CycleDetected);
                 }
 
-                if !visited.contains(&child_key) && child_topo_value < upper_bound {
+                if !visited.contains(&child_key) && child_topo_order < upper_bound {
                     stack.push(*child_key);
                 }
             }
@@ -248,9 +257,9 @@ impl<T: Hash + Eq> IncrDAG<T> {
             result.insert(next_key);
 
             for parent_key in &self.node_data[next_key].parents {
-                let parent_topo_value = self.node_data[*parent_key].topo_value;
+                let parent_topo_order = self.node_data[*parent_key].topo_order;
 
-                if !visited.contains(&parent_key) && lower_bound < parent_topo_value {
+                if !visited.contains(&parent_key) && lower_bound < parent_topo_order {
                     stack.push(*parent_key);
                 }
             }
@@ -262,33 +271,33 @@ impl<T: Hash + Eq> IncrDAG<T> {
     fn reorder_nodes(&mut self, change_forward: HashSet<usize>, change_backward: HashSet<usize>) {
         let mut change_forward: Vec<_> = change_forward
             .into_iter()
-            .map(|key| (key, self.node_data[key].topo_value))
+            .map(|key| (key, self.node_data[key].topo_order))
             .collect();
         change_forward.sort_unstable_by_key(|pair| pair.1);
 
         let mut change_backward: Vec<_> = change_backward
             .into_iter()
-            .map(|key| (key, self.node_data[key].topo_value))
+            .map(|key| (key, self.node_data[key].topo_order))
             .collect();
         change_backward.sort_unstable_by_key(|pair| pair.1);
 
         let mut all_keys = Vec::new();
-        let mut all_topo_values = Vec::new();
+        let mut all_topo_orders = Vec::new();
 
-        for (key, topo_value) in change_forward {
+        for (key, topo_order) in change_forward {
             all_keys.push(key);
-            all_topo_values.push(topo_value);
+            all_topo_orders.push(topo_order);
         }
 
-        for (key, topo_value) in change_backward {
+        for (key, topo_order) in change_backward {
             all_keys.push(key);
-            all_topo_values.push(topo_value);
+            all_topo_orders.push(topo_order);
         }
 
-        all_topo_values.sort_unstable();
+        all_topo_orders.sort_unstable();
 
-        for (key, topo_value) in all_keys.into_iter().zip(all_topo_values.into_iter()) {
-            self.node_data[key].topo_value = topo_value;
+        for (key, topo_order) in all_keys.into_iter().zip(all_topo_orders.into_iter()) {
+            self.node_data[key].topo_order = topo_order;
         }
     }
 }
