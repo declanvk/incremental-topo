@@ -2,23 +2,11 @@
 name = "incremental-topo"
 version = "0.1.0"
 authors = ["Declan Kelly <dkelly.home@gmail.com>"]
-
-# A short blurb about the package. This is not rendered in any format when
-# uploaded to crates.io (aka this is not markdown).
 description = "Data structure to maintain an incremental topological ordering over a collection of values"
-
 repository = "https://github.com/declanvk/incremental-topo/"
-
-# This points to a file under the package root (relative to this `Cargo.toml`).
-# The contents of this file are stored and indexed in the registry.
-# crates.io will render this file and place the result on the crate's page.
 readme = "README.md"
 
-# This is a list of up to five keywords that describe this crate. Keywords
-# are searchable on crates.io, and you may choose any words that would
-# help someone find this crate.
 keywords = ["data-structures", "dag", "graph", "incremental", "topological"]
-
 categories = ["algorithms", "data-structures"]
 
 license = "MIT/Apache-2.0"
