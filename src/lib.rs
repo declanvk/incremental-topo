@@ -278,6 +278,29 @@ impl<T: Hash + Eq> IncrDAG<T> {
         })
     }
 
+    pub fn topo_cmp<Q, R>(&self, prec: &Q, succ: &R) -> Result<Ordering>
+    where
+        T: Borrow<Q> + Borrow<R>,
+        Q: Hash + Eq + ?Sized,
+        R: Hash + Eq + ?Sized,
+    {
+        let (prec_key, succ_key) = self.get_dep_keys(prec, succ)?;
+
+        Ok(self.node_data[prec_key]
+            .topo_order
+            .cmp(&self.node_data[succ_key].topo_order))
+    }
+
+    pub fn topo_order<Q>(&self, node: &Q) -> Result<u32>
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let node_key = *self.node_keys.get_by_left(node).ok_or(Error::NodeMissing)?;
+
+        Ok(self.node_data[node_key].topo_order)
+    }
+
     fn get_dep_keys<Q, R>(&self, prec: &Q, succ: &R) -> Result<(usize, usize)>
     where
         T: Borrow<Q> + Borrow<R>,
