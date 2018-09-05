@@ -622,4 +622,23 @@ mod tests {
 
         assert_eq!(topo_orders, (1..=7).collect::<HashSet<_>>())
     }
+
+    #[test]
+    fn readme_example() {
+        let mut dag = IncrementalTopo::new();
+
+        dag.add_node("dog");
+        dag.add_node("cat");
+        dag.add_node("human");
+
+        assert_eq!(dag.size(), 3);
+
+        dag.add_dependency("human", "dog").unwrap();
+        dag.add_dependency("human", "cat").unwrap();
+        dag.add_dependency("dog", "cat").unwrap();
+
+        let animal_order: Vec<_> = dag.descendants("human").unwrap().map(|v| *v).collect();
+
+        assert_eq!(animal_order, vec!["human", "dog", "cat"]);
+    }
 }
