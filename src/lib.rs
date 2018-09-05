@@ -18,7 +18,7 @@ use std::{
 };
 
 #[derive(Default, Debug, Clone)]
-pub struct IncrDAG<T: Hash + Eq, NodeId: Hash + Eq + Copy = usize> {
+pub struct IncrementalTopo<T: Hash + Eq, NodeId: Hash + Eq + Copy = usize> {
     node_keys: BiMap<T, usize>,
     node_data: Slab<NodeData<NodeId>>,
     last_topo_order: u32,
@@ -66,9 +66,9 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl<T: Hash + Eq> IncrDAG<T> {
+impl<T: Hash + Eq> IncrementalTopo<T> {
     pub fn new() -> Self {
-        IncrDAG {
+        IncrementalTopo {
             node_keys: BiMap::new(),
             node_data: Slab::new(),
             last_topo_order: 0,
@@ -412,7 +412,7 @@ pub struct DescendantsUnsorted<'a, T>
 where
     T: 'a + Eq + Hash,
 {
-    dag: &'a IncrDAG<T>,
+    dag: &'a IncrementalTopo<T>,
     stack: Vec<usize>,
     visited: HashSet<usize>,
 }
@@ -449,7 +449,7 @@ pub struct Descendants<'a, T>
 where
     T: 'a + Eq + Hash,
 {
-    dag: &'a IncrDAG<T>,
+    dag: &'a IncrementalTopo<T>,
     queue: BinaryHeap<(Reverse<u32>, usize)>,
     visited: HashSet<usize>,
 }
@@ -488,8 +488,8 @@ where
 mod tests {
     use super::*;
 
-    fn get_basic_dag() -> Result<IncrDAG<&'static str>> {
-        let mut dag = IncrDAG::new();
+    fn get_basic_dag() -> Result<IncrementalTopo<&'static str>> {
+        let mut dag = IncrementalTopo::new();
 
         dag.add_node("dog");
         dag.add_node("cat");
@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn add_nodes_basic() {
-        let mut dag = IncrDAG::new();
+        let mut dag = IncrementalTopo::new();
 
         dag.add_node("dog");
         dag.add_node("cat");
@@ -537,7 +537,7 @@ mod tests {
 
     #[test]
     fn add_nodes_duplicate() {
-        let mut dag = IncrDAG::new();
+        let mut dag = IncrementalTopo::new();
 
         dag.add_node("dog");
         assert!(!dag.add_node("dog"));
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn delete_nodes() {
-        let mut dag = IncrDAG::new();
+        let mut dag = IncrementalTopo::new();
 
         dag.add_node("dog");
         dag.add_node("cat");
@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn reject_cycle() {
-        let mut dag = IncrDAG::new();
+        let mut dag = IncrementalTopo::new();
 
         dag.add_node("1");
         dag.add_node("2");
