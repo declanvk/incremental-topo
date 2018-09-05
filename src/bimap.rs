@@ -6,7 +6,7 @@ use std::{
         HashMap,
     },
     hash::{BuildHasher, Hash, Hasher},
-    iter,
+    iter::{self, Extend, FromIterator, IntoIterator},
 };
 
 type LeftHash = u64;
@@ -142,7 +142,7 @@ where
         }
     }
 
-    pub fn left_values(&mut self) -> Values<L> {
+    pub fn left_values(&self) -> Values<L> {
         Values {
             inner: self.right_to_left.values(),
         }
@@ -154,7 +154,7 @@ where
         }
     }
 
-    pub fn right_values(&mut self) -> Values<R> {
+    pub fn right_values(&self) -> Values<R> {
         Values {
             inner: self.left_to_right.values(),
         }
@@ -453,8 +453,6 @@ where
             .map(|pair_pair| ((pair_pair.0).1, (pair_pair.1).1))
     }
 }
-
-use std::iter::{Extend, FromIterator, IntoIterator};
 
 impl<L, R, S: BuildHasher> IntoIterator for BiMap<L, R, S>
 where

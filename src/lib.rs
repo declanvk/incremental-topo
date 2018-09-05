@@ -9,7 +9,13 @@ pub mod bimap;
 
 use bimap::BiMap;
 use slab::Slab;
-use std::{borrow::Borrow, collections::HashSet, hash::Hash, iter::Iterator};
+use std::{
+    borrow::Borrow,
+    cmp::{Ordering, Reverse},
+    collections::{BinaryHeap, HashSet},
+    hash::Hash,
+    iter::Iterator,
+};
 
 #[derive(Default, Debug, Clone)]
 pub struct IncrDAG<T: Hash + Eq, NodeId: Hash + Eq + Copy = usize> {
@@ -18,7 +24,7 @@ pub struct IncrDAG<T: Hash + Eq, NodeId: Hash + Eq + Copy = usize> {
     last_topo_order: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NodeData<NodeId: Hash + Eq> {
     topo_order: u32,
     parents: HashSet<NodeId>,
@@ -38,11 +44,23 @@ where
     }
 }
 
+impl<NodeId: Hash + Eq> PartialOrd for NodeData<NodeId> {
+    fn partial_cmp(&self, other: &NodeData<NodeId>) -> Option<Ordering> {
+        self.topo_order.partial_cmp(&other.topo_order)
+    }
+}
+
+impl<NodeId: Hash + Eq> Ord for NodeData<NodeId> {
+    fn cmp(&self, other: &NodeData<NodeId>) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
 #[derive(Fail, Debug)]
 pub enum Error {
     #[fail(display = "Node was not found in graph")]
     NodeMissing,
-    #[fail(display = "Cycle was detected during edge creation")]
+    #[fail(display = "Nodes may not transitively depend on themselves in a cyclic fashion")]
     CycleDetected,
 }
 
@@ -115,6 +133,9 @@ impl<T: Hash + Eq> IncrDAG<T> {
                 }
             }
 
+            // Decrement last topo order to account for shifted topo values
+            self.last_topo_order -= 1;
+
             true
         } else {
             false
@@ -128,6 +149,11 @@ impl<T: Hash + Eq> IncrDAG<T> {
         R: Hash + Eq + ?Sized,
     {
         let (prec_key, succ_key) = self.get_dep_keys(prec, succ)?;
+
+        if prec_key == succ_key {
+            // No loops to self
+            return Err(Error::CycleDetected);
+        }
 
         // Insert forward edge
         let mut no_prev_edge = self.node_data[prec_key].children.insert(succ_key);
@@ -193,6 +219,63 @@ impl<T: Hash + Eq> IncrDAG<T> {
 
     pub fn size(&self) -> usize {
         self.node_keys.len()
+    }
+
+    pub fn iter(&self) -> bimap::Values<T> {
+        self.node_keys.left_values()
+    }
+
+    pub fn iter_mut(&mut self) -> bimap::ValuesMut<T> {
+        self.node_keys.left_values_mut()
+    }
+
+    pub fn descendants_unsorted<Q>(&self, node: &Q) -> Result<DescendantsUnsorted<T>>
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let node_key = if let Some(key) = self.node_keys.get_by_left(node) {
+            *key
+        } else {
+            return Err(Error::NodeMissing);
+        };
+
+        let mut stack = Vec::new();
+        let visited = HashSet::new();
+
+        stack.push(node_key);
+
+        Ok(DescendantsUnsorted {
+            dag: self,
+            stack,
+            visited,
+        })
+    }
+
+    pub fn descendants<Q>(&self, node: &Q) -> Result<Descendants<T>>
+    where
+        T: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let node_key = if let Some(key) = self.node_keys.get_by_left(node) {
+            *key
+        } else {
+            return Err(Error::NodeMissing);
+        };
+
+        let order = self.node_data[node_key].topo_order;
+
+        let mut queue = BinaryHeap::new();
+
+        queue.push((Reverse(order), node_key));
+
+        let visited = HashSet::new();
+
+        Ok(Descendants {
+            dag: self,
+            queue,
+            visited,
+        })
     }
 
     fn get_dep_keys<Q, R>(&self, prec: &Q, succ: &R) -> Result<(usize, usize)>
@@ -302,9 +385,114 @@ impl<T: Hash + Eq> IncrDAG<T> {
     }
 }
 
+pub struct DescendantsUnsorted<'a, T>
+where
+    T: 'a + Eq + Hash,
+{
+    dag: &'a IncrDAG<T>,
+    stack: Vec<usize>,
+    visited: HashSet<usize>,
+}
+
+impl<'a, T> Iterator for DescendantsUnsorted<'a, T>
+where
+    T: 'a + Hash + Eq,
+{
+    type Item = (u32, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(key) = self.stack.pop() {
+                if self.visited.contains(&key) {
+                    continue;
+                } else {
+                    self.visited.insert(key);
+                }
+
+                let node = self.dag.node_keys.get_by_right(&key).unwrap();
+                let order = self.dag.node_data[key].topo_order;
+
+                self.stack.extend(&self.dag.node_data[key].children);
+
+                return Some((order, node));
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+pub struct Descendants<'a, T>
+where
+    T: 'a + Eq + Hash,
+{
+    dag: &'a IncrDAG<T>,
+    queue: BinaryHeap<(Reverse<u32>, usize)>,
+    visited: HashSet<usize>,
+}
+
+impl<'a, T> Iterator for Descendants<'a, T>
+where
+    T: 'a + Hash + Eq,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((_, key)) = self.queue.pop() {
+                if self.visited.contains(&key) {
+                    continue;
+                } else {
+                    self.visited.insert(key);
+                }
+
+                let node = self.dag.node_keys.get_by_right(&key).unwrap();
+
+                for child in &self.dag.node_data[key].children {
+                    let order = self.dag.node_data[*child].topo_order;
+                    self.queue.push((Reverse(order), *child))
+                }
+
+                return Some(node);
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn get_basic_dag() -> Result<IncrDAG<&'static str>> {
+        let mut dag = IncrDAG::new();
+
+        dag.add_node("dog");
+        dag.add_node("cat");
+        dag.add_node("mouse");
+        dag.add_node("lion");
+        dag.add_node("human");
+        dag.add_node("gazelle");
+        dag.add_node("grass");
+
+        assert_eq!(dag.size(), 7);
+
+        dag.add_dependency("lion", "human")?;
+        dag.add_dependency("lion", "gazelle")?;
+
+        dag.add_dependency("human", "dog")?;
+        dag.add_dependency("human", "cat")?;
+
+        dag.add_dependency("dog", "cat")?;
+        dag.add_dependency("cat", "mouse")?;
+
+        dag.add_dependency("gazelle", "grass")?;
+
+        dag.add_dependency("mouse", "grass")?;
+
+        Ok(dag)
+    }
 
     #[test]
     fn add_nodes_basic() {
@@ -361,30 +549,54 @@ mod tests {
     }
 
     #[test]
-    fn add_dependency() {
+    fn reject_cycle() {
         let mut dag = IncrDAG::new();
 
-        dag.add_node("dog");
-        dag.add_node("cat");
-        dag.add_node("mouse");
-        dag.add_node("lion");
-        dag.add_node("human");
-        dag.add_node("gazelle");
-        dag.add_node("grass");
+        dag.add_node("1");
+        dag.add_node("2");
+        dag.add_node("3");
 
-        assert_eq!(dag.size(), 7);
+        assert_eq!(dag.size(), 3);
 
-        dag.add_dependency("lion", "human").unwrap();
-        dag.add_dependency("lion", "gazelle").unwrap();
+        assert!(dag.add_dependency("1", "2").is_ok());
+        assert!(dag.add_dependency("2", "3").is_ok());
 
-        dag.add_dependency("human", "dog").unwrap();
-        dag.add_dependency("human", "cat").unwrap();
+        assert!(dag.add_dependency("3", "1").is_err());
+        assert!(dag.add_dependency("1", "1").is_err());
+    }
 
-        dag.add_dependency("dog", "cat").unwrap();
-        dag.add_dependency("cat", "mouse").unwrap();
+    #[test]
+    fn get_children_unordered() {
+        let dag = get_basic_dag().unwrap();
 
-        dag.add_dependency("gazelle", "grass").unwrap();
+        let children: HashSet<_> = dag
+            .descendants_unsorted("human")
+            .unwrap()
+            .map(|(_, v)| *v)
+            .collect();
 
-        dag.add_dependency("mouse", "grass").unwrap();
+        let mut expected_children = HashSet::new();
+        expected_children.extend(vec!["human", "dog", "cat", "mouse", "grass"]);
+
+        assert_eq!(children, expected_children);
+
+        let ordered_children: Vec<_> = dag.descendants("human").unwrap().map(|v| *v).collect();
+        assert_eq!(
+            ordered_children,
+            vec!["human", "dog", "cat", "mouse", "grass"]
+        )
+    }
+
+    #[test]
+    fn topo_order_values_no_gaps() {
+        let dag = get_basic_dag().unwrap();
+
+        let topo_orders: HashSet<_> = dag
+            .descendants_unsorted("lion")
+            .unwrap()
+            .map(|p| p.0)
+            .collect();
+
+        assert_eq!(topo_orders, (1..=7).collect::<HashSet<_>>())
     }
 }
