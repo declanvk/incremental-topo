@@ -1,5 +1,9 @@
 # Incremental-Topo
 
+[![Crates.io](https://img.shields.io/crates/v/incremental-topo.svg)](https://crates.io/crates/incremental-topo)
+![Crates.io](https://img.shields.io/crates/l/incremental-topo.svg)
+[![Documentation](https://docs.rs/incremental-topo/badge.svg)](https://docs.rs/incremental-topo)
+
 A data structure for maintaining an topological ordering in an incremental fashion.
 
 ## Usage
