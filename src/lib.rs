@@ -225,9 +225,10 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         self.node_keys.left_values()
     }
 
-    pub fn iter_mut(&mut self) -> bimap::ValuesMut<T> {
-        self.node_keys.left_values_mut()
-    }
+    // FIXME(#1) mutable access not to be allowed
+    // pub fn iter_mut(&mut self) -> bimap::ValuesMut<T> {
+    //     self.node_keys.left_values_mut()
+    // }
 
     pub fn descendants_unsorted<Q>(&self, node: &Q) -> Result<DescendantsUnsorted<T>>
     where

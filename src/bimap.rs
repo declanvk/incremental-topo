@@ -127,7 +127,9 @@ where
         }
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<L, R> {
+    // FIXME(#1) mutable access not to be allowed
+    #[allow(dead_code)]
+    fn iter_mut(&mut self) -> IterMut<L, R> {
         IterMut {
             inner: self
                 .right_to_left
@@ -148,7 +150,9 @@ where
         }
     }
 
-    pub fn left_values_mut(&mut self) -> ValuesMut<L> {
+    // FIXME(#1) mutable access not to be allowed
+    #[allow(dead_code)]
+    fn left_values_mut(&mut self) -> ValuesMut<L> {
         ValuesMut {
             inner: self.right_to_left.values_mut(),
         }
@@ -160,7 +164,9 @@ where
         }
     }
 
-    pub fn right_values_mut(&mut self) -> ValuesMut<R> {
+    // FIXME(#1) mutable access not to be allowed
+    #[allow(dead_code)]
+    fn right_values_mut(&mut self) -> ValuesMut<R> {
         ValuesMut {
             inner: self.left_to_right.values_mut(),
         }
@@ -176,7 +182,9 @@ where
         self.left_to_right.get(&left_hash)
     }
 
-    pub fn get_by_left_mut<P>(&mut self, left: &P) -> Option<&mut R>
+    // FIXME(#1) mutable access not to be allowed
+    #[allow(dead_code)]
+    fn get_by_left_mut<P>(&mut self, left: &P) -> Option<&mut R>
     where
         L: Borrow<P>,
         P: Hash + Eq + ?Sized,
@@ -196,7 +204,9 @@ where
         self.right_to_left.get(&right_hash)
     }
 
-    pub fn get_by_right_mut<Q>(&mut self, right: &Q) -> Option<&mut L>
+    // FIXME(#1) mutable access not to be allowed
+    #[allow(dead_code)]
+    fn get_by_right_mut<Q>(&mut self, right: &Q) -> Option<&mut L>
     where
         R: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
