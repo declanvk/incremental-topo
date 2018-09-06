@@ -1,4 +1,4 @@
-# Incremental-Topo
+# Incremental Topo
 
 [![Crates.io](https://img.shields.io/crates/v/incremental-topo.svg)](https://crates.io/crates/incremental-topo)
 ![Crates.io](https://img.shields.io/crates/l/incremental-topo.svg)
