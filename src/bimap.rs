@@ -138,12 +138,9 @@
 use std::{
     borrow::Borrow,
     cmp::min,
-    collections::{
-        hash_map::{self, RandomState},
-        HashMap,
-    },
+    collections::{hash_map::RandomState, HashMap},
     hash::{BuildHasher, Hash, Hasher},
-    iter::{self, Extend, FromIterator, IntoIterator},
+    iter::{Extend, FromIterator, IntoIterator},
 };
 
 type LeftHash = u64;
@@ -479,21 +476,41 @@ where
     ///     println!("left: {} right: {}", left, right);
     /// }
     /// ```
-    pub fn iter(&self) -> Iter<L, R> {
-        Iter {
-            inner: self.right_to_left.values().zip(self.left_to_right.values()),
-        }
+    pub fn iter(&self) -> impl Iterator<Item = (&L, &R)> {
+        self.right_to_left
+            .values()
+            .map(move |l| (l, self.get_by_left(l).unwrap()))
     }
 
-    // FIXME(#1) mutable access not to be allowed
-    #[allow(dead_code)]
-    fn iter_mut(&mut self) -> IterMut<L, R> {
-        IterMut {
-            inner: self
-                .right_to_left
-                .values_mut()
-                .zip(self.left_to_right.values_mut()),
-        }
+    /// Consume the map, producing an iterator over the left and right values
+    /// pairs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use incremental_topo::bimap::BiMap;
+    ///
+    /// let mut map = BiMap::new();
+    ///
+    /// map.insert(1, 2);
+    /// map.insert(3, 4);
+    /// map.insert(5, 6);
+    ///
+    /// for (left, right) in map.into_iter() {
+    ///     println!("{} + {} = {}", left, right, left + right);
+    /// }
+    /// ```
+    ///
+    pub fn into_iter(self) -> impl Iterator<Item = (L, R)> {
+        let mut l2r = self.left_to_right;
+        let r2l = self.right_to_left;
+        let builder = self.hash_builder;
+
+        r2l.into_iter().map(move |(_, l)| {
+            let left_hash = hash_value(&l, builder.build_hasher());
+
+            (l, l2r.remove(&left_hash).unwrap())
+        })
     }
 
     /// Clears the map, returning all pairs as an iterator. Keeps the
@@ -516,10 +533,16 @@ where
     ///
     /// assert!(map.is_empty());
     /// ```
-    pub fn drain(&mut self) -> Drain<L, R> {
-        Drain {
-            inner: self.right_to_left.drain().zip(self.left_to_right.drain()),
-        }
+    pub fn drain(&mut self) -> impl Iterator<Item = (L, R)> + '_ {
+        let r2l = &mut self.right_to_left;
+        let l2r = &mut self.left_to_right;
+        let builder = &self.hash_builder;
+
+        r2l.drain().map(move |(_, l)| {
+            let left_hash = hash_value(&l, builder.build_hasher());
+
+            (l, l2r.remove(&left_hash).unwrap())
+        })
     }
 
     /// An iterator visiting all left values in arbitrary order.
@@ -540,18 +563,14 @@ where
     ///     println!("left: {}", left);
     /// }
     /// ```
-    pub fn left_values(&self) -> Values<L> {
-        Values {
-            inner: self.right_to_left.values(),
-        }
+    pub fn left_values(&self) -> impl Iterator<Item = &L> {
+        self.right_to_left.values()
     }
 
     // FIXME(#1) mutable access not to be allowed
     #[allow(dead_code)]
-    fn left_values_mut(&mut self) -> ValuesMut<L> {
-        ValuesMut {
-            inner: self.right_to_left.values_mut(),
-        }
+    fn left_values_mut(&mut self) -> impl Iterator<Item = &mut L> {
+        self.right_to_left.values_mut()
     }
 
     /// An iterator visiting all right values in arbitrary order.
@@ -572,18 +591,14 @@ where
     ///     println!("left: {}", left);
     /// }
     /// ```
-    pub fn right_values(&self) -> Values<R> {
-        Values {
-            inner: self.left_to_right.values(),
-        }
+    pub fn right_values(&self) -> impl Iterator<Item = &R> {
+        self.left_to_right.values()
     }
 
     // FIXME(#1) mutable access not to be allowed
     #[allow(dead_code)]
-    fn right_values_mut(&mut self) -> ValuesMut<R> {
-        ValuesMut {
-            inner: self.left_to_right.values_mut(),
-        }
+    fn right_values_mut(&mut self) -> impl Iterator<Item = &mut R> {
+        self.left_to_right.values_mut()
     }
 
     /// Returns a reference to the value corresponding to this left value.
@@ -951,164 +966,6 @@ where
     value.hash(&mut state);
 
     state.finish()
-}
-
-pub struct Iter<'a, L, R>
-where
-    L: 'a,
-    R: 'a,
-{
-    inner: iter::Zip<hash_map::Values<'a, RightHash, L>, hash_map::Values<'a, LeftHash, R>>,
-}
-
-impl<'a, L, R> Iterator for Iter<'a, L, R> {
-    type Item = (&'a L, &'a R);
-
-    fn next(&mut self) -> Option<(&'a L, &'a R)> {
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-pub struct IterMut<'a, L, R>
-where
-    L: 'a,
-    R: 'a,
-{
-    inner: iter::Zip<hash_map::ValuesMut<'a, RightHash, L>, hash_map::ValuesMut<'a, LeftHash, R>>,
-}
-
-impl<'a, L, R> Iterator for IterMut<'a, L, R> {
-    type Item = (&'a mut L, &'a mut R);
-
-    fn next(&mut self) -> Option<(&'a mut L, &'a mut R)> {
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-pub struct Values<'a, T>
-where
-    T: 'a,
-{
-    inner: hash_map::Values<'a, u64, T>,
-}
-
-impl<'a, T> Iterator for Values<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<&'a T> {
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-pub struct ValuesMut<'a, T>
-where
-    T: 'a,
-{
-    inner: hash_map::ValuesMut<'a, u64, T>,
-}
-
-impl<'a, T> Iterator for ValuesMut<'a, T> {
-    type Item = &'a mut T;
-
-    fn next(&mut self) -> Option<&'a mut T> {
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-pub struct IntoIter<L, R> {
-    inner: iter::Zip<hash_map::IntoIter<RightHash, L>, hash_map::IntoIter<LeftHash, R>>,
-}
-
-impl<L, R> Iterator for IntoIter<L, R> {
-    type Item = (L, R);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next()
-            .map(|pair_pair| ((pair_pair.0).1, (pair_pair.1).1))
-    }
-}
-
-pub struct Drain<'a, L, R>
-where
-    L: 'a,
-    R: 'a,
-{
-    inner: iter::Zip<hash_map::Drain<'a, RightHash, L>, hash_map::Drain<'a, LeftHash, R>>,
-}
-
-impl<'a, L, R> Iterator for Drain<'a, L, R>
-where
-    L: 'a,
-    R: 'a,
-{
-    type Item = (L, R);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next()
-            .map(|pair_pair| ((pair_pair.0).1, (pair_pair.1).1))
-    }
-}
-
-impl<L, R, S: BuildHasher> IntoIterator for BiMap<L, R, S>
-where
-    L: Hash + Eq,
-    R: Hash + Eq,
-{
-    type IntoIter = IntoIter<L, R>;
-    type Item = (L, R);
-
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter {
-            inner: self
-                .right_to_left
-                .into_iter()
-                .zip(self.left_to_right.into_iter()),
-        }
-    }
-}
-
-impl<'a, L, R, S: BuildHasher> IntoIterator for &'a BiMap<L, R, S>
-where
-    L: 'a + Hash + Eq,
-    R: 'a + Hash + Eq,
-{
-    type IntoIter = Iter<'a, L, R>;
-    type Item = (&'a L, &'a R);
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, L, R, S: BuildHasher> IntoIterator for &'a mut BiMap<L, R, S>
-where
-    L: 'a + Hash + Eq,
-    R: 'a + Hash + Eq,
-{
-    type IntoIter = IterMut<'a, L, R>;
-    type Item = (&'a mut L, &'a mut R);
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
-    }
 }
 
 impl<L, R, S> FromIterator<(L, R)> for BiMap<L, R, S>

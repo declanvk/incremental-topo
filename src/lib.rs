@@ -221,7 +221,7 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         self.node_keys.len()
     }
 
-    pub fn iter(&self) -> bimap::Values<T> {
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.node_keys.left_values()
     }
 
