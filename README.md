@@ -24,8 +24,8 @@ use incremental_topo::IncrTopo;
 
 let mut dag = IncrementalTopo::new();
 
-dag.add_node("dog");
 dag.add_node("cat");
+dag.add_node("dog");
 dag.add_node("human");
 
 assert_eq!(dag.size(), 3);
@@ -36,7 +36,7 @@ dag.add_dependency("dog", "cat").unwrap();
 
 let animal_order: Vec<_> = dag.descendants("human").unwrap().map(|v| *v).collect();
 
-assert_eq!(animal_order, vec!["human", "dog", "cat"]);
+assert_eq!(animal_order, vec!["dog", "cat"]);
 ```
 
 See [documentation](https://docs.rs/incremental-topo) for more details.

@@ -85,10 +85,13 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         let next_topo_order = self.last_topo_order + 1;
         let node_entry = self.node_data.vacant_entry();
         let key = node_entry.key();
+        let node_data = NodeData::new(next_topo_order);
+
+        info!("Created {:?} at key {:?}", node_data, key);
 
         self.node_keys.insert(node, key);
 
-        node_entry.insert(NodeData::new(next_topo_order));
+        node_entry.insert(node_data);
 
         self.last_topo_order = next_topo_order;
 
@@ -235,7 +238,13 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
             _ => return false,
         };
 
-        self.node_data[prec_key].children.remove(&succ_key);
+        let prec_children = &mut self.node_data[prec_key].children;
+
+        if !prec_children.contains(&succ_key) {
+            return false;
+        }
+
+        prec_children.remove(&succ_key);
         self.node_data[succ_key].parents.remove(&prec_key);
 
         true
@@ -268,7 +277,8 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         let mut stack = Vec::new();
         let visited = HashSet::new();
 
-        stack.push(node_key);
+        // Add all children of selected node
+        stack.extend(&self.node_data[node_key].children);
 
         Ok(DescendantsUnsorted {
             dag: self,
@@ -288,11 +298,19 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
             return Err(Error::NodeMissing);
         };
 
-        let order = self.node_data[node_key].topo_order;
-
         let mut queue = BinaryHeap::new();
 
-        queue.push((Reverse(order), node_key));
+        // Add all children of selected node
+        queue.extend(
+            self.node_data[node_key]
+                .children
+                .iter()
+                .cloned()
+                .map(|child_key| {
+                    let child_order = self.node_data[child_key].topo_order;
+                    (Reverse(child_order), child_key)
+                }),
+        );
 
         let visited = HashSet::new();
 
@@ -415,12 +433,12 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         let mut all_keys = Vec::new();
         let mut all_topo_orders = Vec::new();
 
-        for (key, topo_order) in change_forward {
+        for (key, topo_order) in change_backward {
             all_keys.push(key);
             all_topo_orders.push(topo_order);
         }
 
-        for (key, topo_order) in change_backward {
+        for (key, topo_order) in change_forward {
             all_keys.push(key);
             all_topo_orders.push(topo_order);
         }
@@ -449,24 +467,22 @@ where
     type Item = (u32, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(key) = self.stack.pop() {
-                if self.visited.contains(&key) {
-                    continue;
-                } else {
-                    self.visited.insert(key);
-                }
-
-                let node = self.dag.node_keys.get_by_right(&key).unwrap();
-                let order = self.dag.node_data[key].topo_order;
-
-                self.stack.extend(&self.dag.node_data[key].children);
-
-                return Some((order, node));
+        while let Some(key) = self.stack.pop() {
+            if self.visited.contains(&key) {
+                continue;
             } else {
-                return None;
+                self.visited.insert(key);
             }
+
+            let node = self.dag.node_keys.get_by_right(&key).unwrap();
+            let order = self.dag.node_data[key].topo_order;
+
+            self.stack.extend(&self.dag.node_data[key].children);
+
+            return Some((order, node));
         }
+
+        return None;
     }
 }
 
@@ -625,15 +641,12 @@ mod tests {
             .collect();
 
         let mut expected_children = HashSet::new();
-        expected_children.extend(vec!["human", "dog", "cat", "mouse", "grass"]);
+        expected_children.extend(vec!["dog", "cat", "mouse", "grass"]);
 
         assert_eq!(children, expected_children);
 
         let ordered_children: Vec<_> = dag.descendants("human").unwrap().map(|v| *v).collect();
-        assert_eq!(
-            ordered_children,
-            vec!["human", "dog", "cat", "mouse", "grass"]
-        )
+        assert_eq!(ordered_children, vec!["dog", "cat", "mouse", "grass"])
     }
 
     #[test]
@@ -646,15 +659,15 @@ mod tests {
             .map(|p| p.0)
             .collect();
 
-        assert_eq!(topo_orders, (1..=7).collect::<HashSet<_>>())
+        assert_eq!(topo_orders, (2..=7).collect::<HashSet<_>>())
     }
 
     #[test]
     fn readme_example() {
         let mut dag = IncrementalTopo::new();
 
-        dag.add_node("dog");
         dag.add_node("cat");
+        dag.add_node("dog");
         dag.add_node("human");
 
         assert_eq!(dag.size(), 3);
@@ -665,6 +678,51 @@ mod tests {
 
         let animal_order: Vec<_> = dag.descendants("human").unwrap().map(|v| *v).collect();
 
-        assert_eq!(animal_order, vec!["human", "dog", "cat"]);
+        assert_eq!(animal_order, vec!["dog", "cat"]);
+    }
+
+    #[test]
+    fn unordered_iter() {
+        let mut dag = IncrementalTopo::new();
+
+        assert!(dag.add_node("cat"));
+        assert!(dag.add_node("mouse"));
+        assert!(dag.add_node("dog"));
+        assert!(dag.add_node("human"));
+
+        assert!(dag.add_dependency("human", "cat").unwrap());
+        assert!(dag.add_dependency("human", "dog").unwrap());
+        assert!(dag.add_dependency("dog", "cat").unwrap());
+        assert!(dag.add_dependency("cat", "mouse").unwrap());
+
+        let pairs = dag
+            .descendants_unsorted("human")
+            .unwrap()
+            .collect::<HashSet<_>>();
+
+        let mut expected_pairs = HashSet::new();
+        expected_pairs.extend(vec![(2, &"dog"), (3, &"cat"), (4, &"mouse")]);
+
+        assert_eq!(pairs, expected_pairs);
+    }
+
+    #[test]
+    fn topo_cmp() {
+        use std::cmp::Ordering::*;
+        let mut dag = IncrementalTopo::new();
+
+        assert!(dag.add_node("cat"));
+        assert!(dag.add_node("mouse"));
+        assert!(dag.add_node("dog"));
+        assert!(dag.add_node("human"));
+
+        assert!(dag.add_dependency("human", "cat").unwrap());
+        assert!(dag.add_dependency("human", "dog").unwrap());
+        assert!(dag.add_dependency("dog", "cat").unwrap());
+        assert!(dag.add_dependency("cat", "mouse").unwrap());
+
+        assert_eq!(dag.topo_cmp("human", "mouse").unwrap(), Less);
+        assert_eq!(dag.topo_cmp("cat", "dog").unwrap(), Greater);
+        assert!(dag.topo_cmp("cat", "horse").is_err());
     }
 }
