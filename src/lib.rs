@@ -19,6 +19,12 @@ use std::{
     iter::Iterator,
 };
 
+/// Data structure for maintaining a topological ordering over a collection of
+/// elements, in an incremental fashion.
+///
+/// See the [module-level documentation] for more information.
+///
+/// [module-level documentation]: index.html
 #[derive(Default, Debug, Clone)]
 pub struct IncrementalTopo<T: Hash + Eq, NodeId: Hash + Eq + Copy = usize> {
     node_keys: BiMap<T, usize>,
@@ -58,6 +64,8 @@ impl<NodeId: Hash + Eq> Ord for NodeData<NodeId> {
     }
 }
 
+/// Different types of failures that can occur while updating or querying the
+/// graph.
 #[derive(Fail, Debug)]
 pub enum Error {
     #[fail(display = "Node was not found in graph")]
@@ -69,6 +77,15 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl<T: Hash + Eq> IncrementalTopo<T> {
+    /// Create a new IncrementalTopo graph.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let dag = IncrementalTopo::<usize>::new();
+    ///
+    /// assert!(dag.is_empty());
+    /// ```
     pub fn new() -> Self {
         IncrementalTopo {
             node_keys: BiMap::new(),
@@ -77,6 +94,28 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         }
     }
 
+    /// Add a new node to the graph.
+    ///
+    /// Initially this node will not have any order relative to the values
+    /// that are already in the graph. Only when relations are added
+    /// with [`add_dependency`] will the order begin to matter.
+    ///
+    /// Returns false if the graph already contains the node.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("dog"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    ///
+    /// assert!(!dag.add_node("cat"));
+    /// ```
+    ///
+    /// [`add_dependency`]: struct.IncrementalTopo.html#method.add_dependency
     pub fn add_node(&mut self, node: T) -> bool {
         if self.contains_node(&node) {
             return false;
@@ -98,6 +137,25 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         true
     }
 
+    /// Returns true if the graph contains the specified node.
+    ///
+    /// The passed node may be any borrowed form of the graph's node type, but
+    /// Hash and Eq on the borrowed form must match those for the node type.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert!(dag.contains_node("cat"));
+    /// assert!(dag.contains_node("dog"));
+    ///
+    /// assert!(!dag.contains_node("horse"));
+    /// assert!(!dag.contains_node("orc"));
+    /// ```
     pub fn contains_node<Q>(&self, node: &Q) -> bool
     where
         T: Borrow<Q>,
@@ -106,6 +164,26 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         self.node_keys.contains_left(node)
     }
 
+    /// Attempt to remove node from graph, returning true if the node was
+    /// contained and removed.
+    ///
+    /// The passed node may be any borrowed form of the graph's node type, but
+    /// Hash and Eq on the borrowed form must match those for the node type.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert!(dag.delete_node("cat"));
+    /// assert!(dag.delete_node(&"dog"));
+    ///
+    /// assert!(!dag.delete_node("horse"));
+    /// assert!(!dag.delete_node(&"orc"));
+    /// ```
     pub fn delete_node<Q>(&mut self, node: &Q) -> bool
     where
         T: Borrow<Q>,
@@ -147,6 +225,38 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         }
     }
 
+    /// Add a directed link between two nodes already present in the graph.
+    ///
+    /// This link indicates an ordering constraint on the two nodes, now `prec`
+    /// must always come before `succ` in the ordering.
+    ///
+    /// The values of `prec` and `succ` may be any borrowed form of the graph's
+    /// node type, but Hash and Eq on the borrowed form must match those for
+    /// the node type.
+    ///
+    /// Returns `Ok(true)` if the graph did not previously contain this
+    /// dependency. Returns `Ok(false)` if the graph did have a previous
+    /// dependency between these two nodes.
+    ///
+    /// # Errors
+    /// This function will return an `Err` if the dependency introduces a cycle
+    /// into the graph or if either of the nodes passed is not found in the
+    /// graph.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("dog"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    ///
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    /// ```
     pub fn add_dependency<Q, R>(&mut self, prec: &Q, succ: &R) -> Result<bool>
     where
         T: Borrow<Q> + Borrow<R>,
@@ -213,6 +323,30 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         Ok(true)
     }
 
+    /// Returns true if the graph contains a dependency from `prec` to `succ`.
+    ///
+    /// Returns false if either node is not found, or if there is no dependency.
+    ///
+    /// The values of `prec` and `succ` may be any borrowed form of the graph's
+    /// node type, but Hash and Eq on the borrowed form must match those for
+    /// the node type.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// assert!(dag.contains_dependency("cat", "mouse"));
+    /// assert!(!dag.contains_dependency("human", "mouse"));
+    /// assert!(!dag.contains_dependency("cat", "horse"));
+    /// ```
     pub fn contains_dependency<Q, R>(&self, prec: &Q, succ: &R) -> bool
     where
         T: Borrow<Q> + Borrow<R>,
@@ -227,6 +361,117 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         self.node_data[prec_key].children.contains(&succ_key)
     }
 
+    /// Returns true if the graph contains a transitive dependency from `prec`
+    /// to `succ`.
+    ///
+    /// In this context a transitive dependency means that `succ` exists as a
+    /// descendant of `prec`, with some chain of other nodes in between.
+    ///
+    /// Returns false if either node is not found in the graph, or there is no
+    /// transitive dependency.
+    ///
+    /// The values of `prec` and `succ` may be any borrowed form of the graph's
+    /// node type, but Hash and Eq on the borrowed form must match those for
+    /// the node type.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// assert!(dag.contains_transitive_dependency("human", "mouse"));
+    /// assert!(!dag.contains_transitive_dependency("dog", "mouse"));
+    /// ```
+    pub fn contains_transitive_dependency<Q, R>(&self, prec: &Q, succ: &R) -> bool
+    where
+        T: Borrow<Q> + Borrow<R>,
+        Q: Hash + Eq + ?Sized,
+        R: Hash + Eq + ?Sized,
+    {
+        // If either node is missing, return quick
+        let (prec_key, succ_key) = match self.get_dep_keys(prec, succ) {
+            Ok(val) => val,
+            _ => return false,
+        };
+
+        // A node cannot depend on itself
+        if prec_key == succ_key {
+            return false;
+        }
+
+        // Else we have to search the graph. Using dfs in this case because it avoids
+        // the overhead of the binary heap, and this task doesn't really need ordered
+        // descendants.
+        let mut stack = Vec::new();
+        let mut visited = HashSet::new();
+
+        stack.push(prec_key);
+
+        // For each node key popped off the stack, check that we haven't seen it
+        // before, then check if its children contain the node we're searching for.
+        // If they don't, continue the search by extending the stack with the children.
+        while let Some(key) = stack.pop() {
+            if visited.contains(&key) {
+                continue;
+            } else {
+                visited.insert(key);
+            }
+
+            let children = &self.node_data[key].children;
+
+            if children.contains(&succ_key) {
+                return true;
+            } else {
+                stack.extend(children);
+
+                continue;
+            }
+        }
+
+        // If we exhaust the stack, then there is no transitive dependency.
+        false
+    }
+
+    /// Attempt to remove a dependency from the graph, returning true if the
+    /// dependency was removed.
+    ///
+    /// Returns false is either node is not found in the graph.
+    ///
+    /// The values of `prec` and `succ` may be any borrowed form of the graph's
+    /// node type, but Hash and Eq on the borrowed form must match those for
+    /// the node type.
+    ///
+    /// Removing a dependency from the graph is an extremely simple operation,
+    /// which requires no recalculation of the topological order. The ordering
+    /// before and after a removal is exactly the same.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// assert!(dag.delete_dependency("cat", "mouse"));
+    /// assert!(dag.delete_dependency("human", "dog"));
+    /// assert!(!dag.delete_dependency("human", "mouse"));
+    /// ```
     pub fn delete_dependency<Q, R>(&mut self, prec: &Q, succ: &R) -> bool
     where
         T: Borrow<Q> + Borrow<R>,
@@ -250,12 +495,74 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         true
     }
 
+    /// Return the number of nodes within the graph.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert_eq!(dag.size(), 4);
+    /// ```
     pub fn size(&self) -> usize {
         self.node_keys.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.node_keys.left_values()
+    /// Return true if there are no nodes in the graph.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.is_empty());
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert!(!dag.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.size() == 0
+    }
+
+    /// Return an iterator over the nodes of the graph
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// use std::collections::HashSet;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("human"));
+    /// assert!(dag.add_node("dog"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// let pairs = dag.iter_unsorted().collect::<HashSet<_>>();
+    ///
+    /// let mut expected_pairs = HashSet::new();
+    /// expected_pairs.extend(vec![(1, &"human"), (2, &"cat"), (3, &"mouse"), (4, &"dog")]);
+    ///
+    /// assert_eq!(pairs, expected_pairs);
+    /// ```
+    pub fn iter_unsorted(&self) -> impl Iterator<Item = (u32, &T)> {
+        self.node_keys.iter().map(move |(node, key)| {
+            let order = self.node_data[*key].topo_order;
+
+            (order, node)
+        })
     }
 
     // FIXME(#1) mutable access not to be allowed
@@ -263,6 +570,42 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
     //     self.node_keys.left_values_mut()
     // }
 
+    /// Return an iterator over the descendants of a node in the graph, in an
+    /// unosrted order.
+    ///
+    /// The passed node may be any borrowed form of the graph's node type, but
+    /// Hash and Eq on the borrowed form must match those for the node type.
+    ///
+    /// Accessing the nodes in an unsorted order allows for faster access using
+    /// a iterative DFS search. This is opposed to the order descendants
+    /// iterator which requires the use of a binary heap to order the values.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// use std::collections::HashSet;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("dog"));
+    /// assert!(dag.add_node("human"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("dog", "cat").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// let pairs = dag
+    ///     .descendants_unsorted("human")
+    ///     .unwrap()
+    ///     .collect::<HashSet<_>>();
+    ///
+    /// let mut expected_pairs = HashSet::new();
+    /// expected_pairs.extend(vec![(2, &"dog"), (3, &"cat"), (4, &"mouse")]);
+    ///
+    /// assert_eq!(pairs, expected_pairs);
+    /// ```
     pub fn descendants_unsorted<Q>(&self, node: &Q) -> Result<DescendantsUnsorted<T>>
     where
         T: Borrow<Q>,
@@ -287,6 +630,38 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         })
     }
 
+    /// Return an iterator over descendants of a node in the graph, in a
+    /// topologically sorted order.
+    ///
+    /// The passed node may be any borrowed form of the graph's node type, but
+    /// Hash and Eq on the borrowed form must match those for the node type.
+    ///
+    /// Accessing the nodes in a sorted order requires the use of a BinaryHeap,
+    /// so some performance penalty is paid there. If all is required is access
+    /// to the descendants of a node, use [`descendants_unsorted`].
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("dog"));
+    /// assert!(dag.add_node("human"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("dog", "cat").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// let ordered_nodes = dag.descendants("human").unwrap().collect::<Vec<_>>();
+    ///
+    /// assert_eq!(ordered_nodes, vec![&"dog", &"cat", &"mouse"]);
+    /// ```
+    ///
+    /// [`descendants_unsorted`]:
+    /// struct.IncrementalTopo.html#method.descendants_unsorted
     pub fn descendants<Q>(&self, node: &Q) -> Result<Descendants<T>>
     where
         T: Borrow<Q>,
@@ -321,27 +696,44 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         })
     }
 
-    pub fn topo_cmp<Q, R>(&self, prec: &Q, succ: &R) -> Result<Ordering>
+    /// Compare two nodes present in the graph, topographically. Returns
+    /// Err(...) if either node is missing from the graph.
+    ///
+    /// The values of `prec` and `succ` may be any borrowed form of the graph's
+    /// node type, but Hash and Eq on the borrowed form must match those for
+    /// the node type.
+    ///
+    /// # Examples
+    /// ```
+    /// use incremental_topo::IncrementalTopo;
+    /// use std::cmp::Ordering::*;
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// assert!(dag.add_node("cat"));
+    /// assert!(dag.add_node("mouse"));
+    /// assert!(dag.add_node("dog"));
+    /// assert!(dag.add_node("human"));
+    ///
+    /// assert!(dag.add_dependency("human", "cat").unwrap());
+    /// assert!(dag.add_dependency("human", "dog").unwrap());
+    /// assert!(dag.add_dependency("dog", "cat").unwrap());
+    /// assert!(dag.add_dependency("cat", "mouse").unwrap());
+    ///
+    /// assert_eq!(dag.topo_cmp("human", "mouse").unwrap(), Less);
+    /// assert_eq!(dag.topo_cmp("cat", "dog").unwrap(), Greater);
+    /// assert!(dag.topo_cmp("cat", "horse").is_err());
+    /// ```
+    pub fn topo_cmp<Q, R>(&self, node_a: &Q, node_b: &R) -> Result<Ordering>
     where
         T: Borrow<Q> + Borrow<R>,
         Q: Hash + Eq + ?Sized,
         R: Hash + Eq + ?Sized,
     {
-        let (prec_key, succ_key) = self.get_dep_keys(prec, succ)?;
+        let (key_a, key_b) = self.get_dep_keys(node_a, node_b)?;
 
-        Ok(self.node_data[prec_key]
+        Ok(self.node_data[key_a]
             .topo_order
-            .cmp(&self.node_data[succ_key].topo_order))
-    }
-
-    pub fn topo_order<Q>(&self, node: &Q) -> Result<u32>
-    where
-        T: Borrow<Q>,
-        Q: Hash + Eq + ?Sized,
-    {
-        let node_key = *self.node_keys.get_by_left(node).ok_or(Error::NodeMissing)?;
-
-        Ok(self.node_data[node_key].topo_order)
+            .cmp(&self.node_data[key_b].topo_order))
     }
 
     fn get_dep_keys<Q, R>(&self, prec: &Q, succ: &R) -> Result<(usize, usize)>
