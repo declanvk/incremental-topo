@@ -1,4 +1,4 @@
-#![feature(nll)]
+#![feature(nll, try_from)]
 
 extern crate failure;
 #[macro_use]
@@ -13,8 +13,11 @@ use bimap::BiMap;
 use slab::Slab;
 use std::{
     borrow::Borrow,
-    cmp::{Ordering, Reverse},
+    cmp::{self, Ordering, Reverse},
     collections::{BinaryHeap, HashSet},
+    convert::{TryFrom, TryInto},
+    error::Error as StdError,
+    fmt,
     hash::Hash,
     iter::Iterator,
 };
@@ -37,6 +40,52 @@ struct NodeData<NodeId: Hash + Eq> {
     topo_order: u32,
     parents: HashSet<NodeId>,
     children: HashSet<NodeId>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TryFromTopoOrdering;
+
+impl TryFromTopoOrdering {
+    fn __description(&self) -> &str {
+        "Equality is not expressible in the context of topological orderings"
+    }
+}
+
+impl fmt::Display for TryFromTopoOrdering {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        self.__description().fmt(fmt)
+    }
+}
+
+impl StdError for TryFromTopoOrdering {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TopoOrdering {
+    Greater,
+    Less,
+}
+
+impl From<TopoOrdering> for cmp::Ordering {
+    fn from(src: TopoOrdering) -> Self {
+        use TopoOrdering::*;
+        match src {
+            Greater => Ordering::Greater,
+            Less => Ordering::Less,
+        }
+    }
+}
+
+impl TryFrom<cmp::Ordering> for TopoOrdering {
+    type Error = TryFromTopoOrdering;
+
+    fn try_from(src: Ordering) -> std::result::Result<Self, TryFromTopoOrdering> {
+        use TopoOrdering::*;
+        match src {
+            Ordering::Greater => Ok(Greater),
+            Ordering::Less => Ok(Less),
+            Ordering::Equal => Err(TryFromTopoOrdering),
+        }
+    }
 }
 
 impl<NodeId> NodeData<NodeId>
@@ -719,11 +768,11 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
     /// assert!(dag.add_dependency("dog", "cat").unwrap());
     /// assert!(dag.add_dependency("cat", "mouse").unwrap());
     ///
-    /// assert_eq!(dag.topo_cmp("human", "mouse").unwrap(), Less);
-    /// assert_eq!(dag.topo_cmp("cat", "dog").unwrap(), Greater);
-    /// assert!(dag.topo_cmp("cat", "horse").is_err());
+    /// assert_eq!(dag.topo_total_cmp("human", "mouse").unwrap(), Less);
+    /// assert_eq!(dag.topo_total_cmp("cat", "dog").unwrap(), Greater);
+    /// assert!(dag.topo_total_cmp("cat", "horse").is_err());
     /// ```
-    pub fn topo_cmp<Q, R>(&self, node_a: &Q, node_b: &R) -> Result<Ordering>
+    pub fn topo_total_cmp<Q, R>(&self, node_a: &Q, node_b: &R) -> Result<TopoOrdering>
     where
         T: Borrow<Q> + Borrow<R>,
         Q: Hash + Eq + ?Sized,
@@ -733,7 +782,9 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
 
         Ok(self.node_data[key_a]
             .topo_order
-            .cmp(&self.node_data[key_b].topo_order))
+            .cmp(&self.node_data[key_b].topo_order)
+            .try_into()
+            .unwrap())
     }
 
     fn get_dep_keys<Q, R>(&self, prec: &Q, succ: &R) -> Result<(usize, usize)>
@@ -1099,7 +1150,7 @@ mod tests {
     }
 
     #[test]
-    fn topo_cmp() {
+    fn topo_total_cmp() {
         use std::cmp::Ordering::*;
         let mut dag = IncrementalTopo::new();
 
@@ -1113,8 +1164,8 @@ mod tests {
         assert!(dag.add_dependency("dog", "cat").unwrap());
         assert!(dag.add_dependency("cat", "mouse").unwrap());
 
-        assert_eq!(dag.topo_cmp("human", "mouse").unwrap(), Less);
-        assert_eq!(dag.topo_cmp("cat", "dog").unwrap(), Greater);
-        assert!(dag.topo_cmp("cat", "horse").is_err());
+        assert_eq!(dag.topo_total_cmp("human", "mouse").unwrap(), Less);
+        assert_eq!(dag.topo_total_cmp("cat", "dog").unwrap(), Greater);
+        assert!(dag.topo_total_cmp("cat", "horse").is_err());
     }
 }
