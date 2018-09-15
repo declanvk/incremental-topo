@@ -754,8 +754,7 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
     ///
     /// # Examples
     /// ```
-    /// use incremental_topo::IncrementalTopo;
-    /// use std::cmp::Ordering::*;
+    /// use incremental_topo::{IncrementalTopo, TopoOrdering::*};
     /// let mut dag = IncrementalTopo::new();
     ///
     /// assert!(dag.add_node("cat"));
@@ -1151,7 +1150,7 @@ mod tests {
 
     #[test]
     fn topo_total_cmp() {
-        use std::cmp::Ordering::*;
+        use TopoOrdering::*;
         let mut dag = IncrementalTopo::new();
 
         assert!(dag.add_node("cat"));
