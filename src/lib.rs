@@ -3,6 +3,8 @@
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
+#[macro_use]
+extern crate log;
 extern crate slab;
 
 pub mod bimap;
@@ -168,19 +170,41 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
             return Ok(false);
         }
 
+        info!("Adding edge from {:?} to {:?}", prec_key, succ_key);
+
+        trace!(
+            "Upper: Order({}), Lower: Order({})",
+            upper_bound,
+            lower_bound
+        );
         // If the affected region of the graph has non-zero size (i.e. the upper and
         // lower bound are equal) then perform an update to the topological ordering of
         // the graph
         if lower_bound < upper_bound {
+            trace!("Will change");
             let mut visited = HashSet::new();
 
             // Walk changes forward from the succ, checking for any cycles that would be
             // introduced
             let change_forward = self.dfs_forward(succ_key, &mut visited, upper_bound)?;
+            trace!("Change forward: {:?}", change_forward);
             // Walk backwards from the prec
             let change_backward = self.dfs_backward(prec_key, &mut visited, lower_bound);
+            trace!("Change backward: {:?}", change_backward);
 
             self.reorder_nodes(change_forward, change_backward);
+
+            trace!(
+                "Final order: {:?}",
+                self.node_keys
+                    .right_values()
+                    .map(|key| {
+                        let order = self.node_data[*key].topo_order;
+                        (order, key)
+                    }).collect::<Vec<_>>()
+            );
+        } else {
+            trace!("No change");
         }
 
         Ok(true)
@@ -487,6 +511,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    extern crate pretty_env_logger;
     use super::*;
 
     fn get_basic_dag() -> Result<IncrementalTopo<&'static str>> {

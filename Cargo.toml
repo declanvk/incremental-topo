@@ -1,6 +1,6 @@
 [package]
 name = "incremental-topo"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Declan Kelly <dkelly.home@gmail.com>"]
 description = "Data structure to maintain an incremental topological ordering over a collection of values"
 repository = "https://github.com/declanvk/incremental-topo/"
@@ -17,3 +17,7 @@ license = "MIT/Apache-2.0"
 failure = "~0.1.2"
 failure_derive = "~0.1.2"
 slab = "~0.4.1"
+log = "~0.4.5"
+
+[dev-dependencies]
+pretty_env_logger = "~0.2.4"
