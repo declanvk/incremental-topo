@@ -12,11 +12,14 @@ set -o pipefail
 CRATESIO_VERSION=$(cargo search incremental-topo | cut -d "\"" -f2) || "CRATESIO_VERSION FAILED"
 LOCAL_VERSION=$(cargo read-manifest | jq -r .version) || "LOCAL_VERSION FAILED"
 
+echo "Crates.io version: $CRATESIO_VERSION"
+echo "Local version: $LOCAL_VERSION"
+
 if [[ "$CRATESIO_VERSION" == "$LOCAL_VERSION" ]]; then
-  printf "Crate version not changed locally"
+  printf "Crate version not changed locally\n"
   exit
 else
-  git tag -a "v$LOCAL_VERSION" -m "Version $LOCAL_VERSION of incremental-topo"
+  git tag -a "v$LOCAL_VERSION" -m "Version $LOCAL_VERSION of incremental-topo" || true
 
-  cargo publish --dry-run
+  cargo publish
 fi
