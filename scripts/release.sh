@@ -19,6 +19,8 @@ if [[ "$CRATESIO_VERSION" == "$LOCAL_VERSION" ]]; then
   printf "Crate version not changed locally\n"
   exit
 else
+  cargo test
+
   git tag -a "v$LOCAL_VERSION" -m "Version $LOCAL_VERSION of incremental-topo" || true
 
   cargo publish
