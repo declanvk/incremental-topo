@@ -22,4 +22,6 @@ else
   git tag -a "v$LOCAL_VERSION" -m "Version $LOCAL_VERSION of incremental-topo" || true
 
   cargo publish
+
+  git push origin "v$LOCAL_VERSION"
 fi
