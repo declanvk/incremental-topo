@@ -81,7 +81,6 @@
 //! analysis of runtime bounds for each.
 //!
 //! [paper by D. J. Pearce and P. H. J. Kelly]: http://www.doc.ic.ac.uk/~phjk/Publications/DynamicTopoSortAlg-JEA-07.pdf
-//!
 
 extern crate failure;
 #[macro_use]
@@ -397,7 +396,8 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
                     .map(|key| {
                         let order = self.node_data[*key].topo_order;
                         (order, key)
-                    }).collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
             );
         } else {
             trace!("No change");

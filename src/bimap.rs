@@ -500,7 +500,6 @@ where
     ///     println!("{} + {} = {}", left, right, left + right);
     /// }
     /// ```
-    ///
     pub fn into_iter(self) -> impl Iterator<Item = (L, R)> {
         let mut l2r = self.left_to_right;
         let r2l = self.right_to_left;
@@ -865,13 +864,15 @@ where
                 let prev_pair = self.remove_by_right(&right).unwrap();
                 Overwritten::Right(prev_pair.0, prev_pair.1)
             },
-            (true, true) => if self.get_by_left(&left) == Some(&right) {
-                let prev_pair = self.remove_by_left(&left).unwrap();
-                Overwritten::Pair(prev_pair.0, prev_pair.1)
-            } else {
-                let left_overwritten = self.remove_by_left(&left).unwrap();
-                let right_overwritten = self.remove_by_right(&right).unwrap();
-                Overwritten::Both(left_overwritten, right_overwritten)
+            (true, true) => {
+                if self.get_by_left(&left) == Some(&right) {
+                    let prev_pair = self.remove_by_left(&left).unwrap();
+                    Overwritten::Pair(prev_pair.0, prev_pair.1)
+                } else {
+                    let left_overwritten = self.remove_by_left(&left).unwrap();
+                    let right_overwritten = self.remove_by_right(&right).unwrap();
+                    Overwritten::Both(left_overwritten, right_overwritten)
+                }
             },
         };
 
@@ -949,7 +950,8 @@ where
                 } else {
                     None
                 }
-            }).collect();
+            })
+            .collect();
 
         for (left_hash, right_hash) in to_remove {
             self.left_to_right.remove(&left_hash);
