@@ -1,5 +1,35 @@
 //! A fast two-way bijective map.
 //!
+//! ## Disclaimer
+//!
+//! This API and documentation is taken directly from Billy Rieger's
+//! [`bimap-rs`]. Specific changes have been made to the implementation such
+//! that left and right values can be searched for using `Borrow`ed versions of
+//! themselves.
+//!
+//! Before the change the `get_by_left` function signature looked like this:
+//! ```text
+//! pub fn get_by_left(&self, left: &L) -> Option<&R>;
+//! ```
+//!
+//! After the change the `get_by_left` function signature looks like this:
+//! ```text
+//! pub fn get_by_left<P>(&self, left: &P) -> Option<&R>
+//! where
+//!     L: Borrow<P>,
+//!     P: Hash + Eq + ?Sized,
+//! ```
+//!
+//! In order to accomodate this change, the internal representation of the bimap
+//! changed slightly. Previously bimap used an internal representation of two
+//! hashmaps that mapped `Rc<L> -> Rc<R>` and `Rc<R> -> Rc<L>`. The new version
+//! also has two hashmaps that map `hash(L) -> R` and `hash(R) -> L`.
+//!
+//! Overall, this version accomplishes the bare minimum needed for a bimap,
+//! while [`bimap-rs`] offers more options.
+//!
+//! ## Description
+//!
 //! A `BiMap<L, R>` is a [bijective map] between values of type `L`, called
 //! left values, and values of type `R`, called right values. This means every
 //! left value is associated with exactly one right value and vice versa.
@@ -134,6 +164,7 @@
 //! [`insert`]: struct.BiMap.html#method.insert
 //! [`insert_no_overwrite`]: struct.BiMap.html#method.insert_no_overwrite
 //! [`Overwritten`]: enum.Overwritten.html
+//! [`bimap-rs`]: https://github.com/billyrieger/bimap-rs/
 
 use std::{
     borrow::Borrow,
@@ -500,6 +531,8 @@ where
     ///     println!("{} + {} = {}", left, right, left + right);
     /// }
     /// ```
+    // TODO: remove and implement IntoIterator for T, &T
+    #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> impl Iterator<Item = (L, R)> {
         let mut l2r = self.left_to_right;
         let r2l = self.right_to_left;
