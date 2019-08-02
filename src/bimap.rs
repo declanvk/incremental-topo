@@ -531,6 +531,8 @@ where
     ///     println!("{} + {} = {}", left, right, left + right);
     /// }
     /// ```
+    // TODO: remove and implement IntoIterator for T, &T
+    #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> impl Iterator<Item = (L, R)> {
         let mut l2r = self.left_to_right;
         let r2l = self.right_to_left;

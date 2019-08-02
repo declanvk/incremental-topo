@@ -1,4 +1,3 @@
-#![feature(nll)]
 //! The purpose of this crate is to maintain an topological order in the face
 //! of single updates, like adding new nodes, adding new depedencies, deleting
 //! dependencies, and deleting nodes.
@@ -82,24 +81,18 @@
 //!
 //! [paper by D. J. Pearce and P. H. J. Kelly]: http://www.doc.ic.ac.uk/~phjk/Publications/DynamicTopoSortAlg-JEA-07.pdf
 
-extern crate failure;
-#[macro_use]
-extern crate failure_derive;
-#[macro_use]
-extern crate log;
-extern crate slab;
-
 pub mod bimap;
 
 use bimap::BiMap;
-use slab::Slab;
-use std::{
+use core::{
     borrow::Borrow,
     cmp::{Ordering, Reverse},
-    collections::{BinaryHeap, HashSet},
     hash::Hash,
     iter::Iterator,
 };
+use failure_derive::Fail;
+use slab::Slab;
+use std::collections::{BinaryHeap, HashSet};
 
 /// Data structure for maintaining a topological ordering over a collection of
 /// elements, in an incremental fashion.
@@ -208,7 +201,7 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         let key = node_entry.key();
         let node_data = NodeData::new(next_topo_order);
 
-        info!("Created {:?} at key {:?}", node_data, key);
+        log::info!("Created {:?} at key {:?}", node_data, key);
 
         self.node_keys.insert(node, key);
 
@@ -365,9 +358,9 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
             return Ok(false);
         }
 
-        info!("Adding edge from {:?} to {:?}", prec_key, succ_key);
+        log::info!("Adding edge from {:?} to {:?}", prec_key, succ_key);
 
-        trace!(
+        log::trace!(
             "Upper: Order({}), Lower: Order({})",
             upper_bound,
             lower_bound
@@ -376,20 +369,20 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
         // lower bound are equal) then perform an update to the topological ordering of
         // the graph
         if lower_bound < upper_bound {
-            trace!("Will change");
+            log::trace!("Will change");
             let mut visited = HashSet::new();
 
             // Walk changes forward from the succ, checking for any cycles that would be
             // introduced
             let change_forward = self.dfs_forward(succ_key, &mut visited, upper_bound)?;
-            trace!("Change forward: {:?}", change_forward);
+            log::trace!("Change forward: {:?}", change_forward);
             // Walk backwards from the prec
             let change_backward = self.dfs_backward(prec_key, &mut visited, lower_bound);
-            trace!("Change backward: {:?}", change_backward);
+            log::trace!("Change backward: {:?}", change_backward);
 
             self.reorder_nodes(change_forward, change_backward);
 
-            trace!(
+            log::trace!(
                 "Final order: {:?}",
                 self.node_keys
                     .right_values()
@@ -400,7 +393,7 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
                     .collect::<Vec<_>>()
             );
         } else {
-            trace!("No change");
+            log::trace!("No change");
         }
 
         Ok(true)
@@ -957,7 +950,7 @@ where
             return Some((order, node));
         }
 
-        return None;
+        None
     }
 }
 
