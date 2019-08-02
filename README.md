@@ -1,7 +1,7 @@
 # Incremental Topo
 
 [![Crates.io](https://img.shields.io/crates/v/incremental-topo.svg)](https://crates.io/crates/incremental-topo)
-[![Travis CI](https://travis-ci.org/declanvk/incremental-topo.svg?branch=master)](https://travis-ci.org/declanvk/incremental-topo)
+[![Travis CI](https://travis-ci.com/declanvk/incremental-topo.svg?branch=master)](https://travis-ci.com/declanvk/incremental-topo)
 [![Documentation](https://docs.rs/incremental-topo/badge.svg)](https://docs.rs/incremental-topo)
 
 A data structure for maintaining an topological ordering in an incremental fashion.
