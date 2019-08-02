@@ -8,12 +8,12 @@
 //! themselves.
 //!
 //! Before the change the `get_by_left` function signature looked like this:
-//! ```
+//! ```text
 //! pub fn get_by_left(&self, left: &L) -> Option<&R>;
 //! ```
 //!
 //! After the change the `get_by_left` function signature looks like this:
-//! ```
+//! ```text
 //! pub fn get_by_left<P>(&self, left: &P) -> Option<&R>
 //! where
 //!     L: Borrow<P>,

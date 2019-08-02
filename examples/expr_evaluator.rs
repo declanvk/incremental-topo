@@ -254,6 +254,7 @@ impl Expr {
         )
     }
 
+    #[allow(dead_code)]
     fn subtract<L: Into<Rc<Self>>, R: Into<Rc<Self>>>(left: L, right: R) -> (Symbol, Rc<Self>) {
         use BinopType::*;
         use Expr::*;
@@ -274,6 +275,7 @@ impl Expr {
         )
     }
 
+    #[allow(dead_code)]
     fn divide<L: Into<Rc<Self>>, R: Into<Rc<Self>>>(left: L, right: R) -> (Symbol, Rc<Self>) {
         use BinopType::*;
         use Expr::*;
@@ -360,10 +362,7 @@ enum Error {
     MissingBinding(Symbol),
     #[fail(display = "Binding depends on its own value")]
     RecursiveDependence,
-    #[fail(
-        display = "Unable to substitute variable ({:?}) in evaluation",
-        _0
-    )]
+    #[fail(display = "Unable to substitute variable ({:?}) in evaluation", _0)]
     UnsubstitutedVar(Symbol),
     #[fail(display = "{}", _0)]
     Topo(#[cause] topo::Error),
