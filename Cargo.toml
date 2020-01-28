@@ -26,7 +26,7 @@ failure = "~0.1.2"
 failure_derive = "~0.1.2"
 ordered-float = "~1.0.1"
 criterion = "~0.2.5"
-rand = "~0.5.5"
+rand = "~0.7.3"
 
 [[bench]]
 name = "basic_operations"
