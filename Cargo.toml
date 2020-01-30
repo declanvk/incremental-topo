@@ -21,7 +21,7 @@ slab = "~0.4.1"
 log = "~0.4.5"
 
 [dev-dependencies]
-pretty_env_logger = "~0.3.1"
+pretty_env_logger = "~0.4.0"
 failure = "~0.1.2"
 failure_derive = "~0.1.2"
 ordered-float = "~1.0.1"
