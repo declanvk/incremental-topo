@@ -806,11 +806,10 @@ where
         let left_hash = hash_value(left, self.hash_builder.build_hasher());
         if let Some(right_value) = self.left_to_right.remove(&left_hash) {
             let right_hash = hash_value(&right_value, self.hash_builder.build_hasher());
-            if let Some(left_value) = self.right_to_left.remove(&right_hash) {
-                Some((left_value, right_value))
-            } else {
-                None
-            }
+
+            self.right_to_left
+                .remove(&right_hash)
+                .map(|left_value| (left_value, right_value))
         } else {
             None
         }
@@ -845,11 +844,10 @@ where
         let right_hash = hash_value(&right, self.hash_builder.build_hasher());
         if let Some(left_value) = self.right_to_left.remove(&right_hash) {
             let left_hash = hash_value(&left_value, self.hash_builder.build_hasher());
-            if let Some(right_value) = self.left_to_right.remove(&left_hash) {
-                Some((left_value, right_value))
-            } else {
-                None
-            }
+
+            self.left_to_right
+                .remove(&left_hash)
+                .map(|right_value| (left_value, right_value))
         } else {
             None
         }
