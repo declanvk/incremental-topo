@@ -200,8 +200,8 @@ pub enum Overwritten<L, R> {
     /// to the left value, and the second one corresponding to the right value
     Both((L, R), (L, R)),
 
-    // Both the left and the right values existed in the `BiMap`, as parts of the same pair. The
-    // previous pair is returned.
+    /// Both the left and the right values existed in the `BiMap`, as parts of
+    /// the same pair. The previous pair is returned.
     Pair(L, R),
 }
 
@@ -599,12 +599,6 @@ where
         self.right_to_left.values()
     }
 
-    // FIXME(#1) mutable access not to be allowed
-    #[allow(dead_code)]
-    fn left_values_mut(&mut self) -> impl Iterator<Item = &mut L> {
-        self.right_to_left.values_mut()
-    }
-
     /// An iterator visiting all right values in arbitrary order.
     /// The iterator element type is `&'a R`.
     ///
@@ -625,12 +619,6 @@ where
     /// ```
     pub fn right_values(&self) -> impl Iterator<Item = &R> {
         self.left_to_right.values()
-    }
-
-    // FIXME(#1) mutable access not to be allowed
-    #[allow(dead_code)]
-    fn right_values_mut(&mut self) -> impl Iterator<Item = &mut R> {
-        self.left_to_right.values_mut()
     }
 
     /// Returns a reference to the value corresponding to this left value.
@@ -663,18 +651,6 @@ where
         self.left_to_right.get(&left_hash)
     }
 
-    // FIXME(#1) mutable access not to be allowed
-    #[allow(dead_code)]
-    fn get_by_left_mut<P>(&mut self, left: &P) -> Option<&mut R>
-    where
-        L: Borrow<P>,
-        P: Hash + Eq + ?Sized,
-    {
-        let left_hash = hash_value(left, self.hash_builder.build_hasher());
-
-        self.left_to_right.get_mut(&left_hash)
-    }
-
     /// Returns a reference to the value corresponding to this right value.
     ///
     /// The right value may be any borrowed form of the map's right type, but
@@ -703,18 +679,6 @@ where
         let right_hash = hash_value(right, self.hash_builder.build_hasher());
 
         self.right_to_left.get(&right_hash)
-    }
-
-    // FIXME(#1) mutable access not to be allowed
-    #[allow(dead_code)]
-    fn get_by_right_mut<Q>(&mut self, right: &Q) -> Option<&mut L>
-    where
-        R: Borrow<Q>,
-        Q: Hash + Eq + ?Sized,
-    {
-        let right_hash = hash_value(right, self.hash_builder.build_hasher());
-
-        self.right_to_left.get_mut(&right_hash)
     }
 
     /// Returns true if the map contains a pair for the specified left value.
@@ -896,11 +860,12 @@ where
                 Overwritten::Right(prev_pair.0, prev_pair.1)
             },
             (true, true) => {
-                if self.get_by_left(&left) == Some(&right) {
-                    let prev_pair = self.remove_by_left(&left).unwrap();
-                    Overwritten::Pair(prev_pair.0, prev_pair.1)
+                let is_overwrite_pair = self.get_by_left(&left) == Some(&right);
+                let left_overwritten = self.remove_by_left(&left).unwrap();
+
+                if is_overwrite_pair {
+                    Overwritten::Pair(left_overwritten.0, left_overwritten.1)
                 } else {
-                    let left_overwritten = self.remove_by_left(&left).unwrap();
                     let right_overwritten = self.remove_by_right(&right).unwrap();
                     Overwritten::Both(left_overwritten, right_overwritten)
                 }
