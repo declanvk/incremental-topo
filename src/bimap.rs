@@ -200,8 +200,8 @@ pub enum Overwritten<L, R> {
     /// to the left value, and the second one corresponding to the right value
     Both((L, R), (L, R)),
 
-    /// Both the left and the right values existed in the `BiMap`, as parts of the same pair. The
-    /// previous pair is returned.
+    /// Both the left and the right values existed in the `BiMap`, as parts of
+    /// the same pair. The previous pair is returned.
     Pair(L, R),
 }
 
