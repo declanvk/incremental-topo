@@ -24,7 +24,7 @@ log = "~0.4.5"
 pretty_env_logger = "~0.4.0"
 failure = "~0.1.2"
 failure_derive = "~0.1.2"
-ordered-float = "~2.1.1"
+ordered-float = "~3.0.0"
 criterion = "0.3.4"
 rand = "~0.8.0"
 
