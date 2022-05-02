@@ -849,7 +849,7 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
                     return Err(Error::CycleDetected);
                 }
 
-                if !visited.contains(&child_key) && child_topo_order < upper_bound {
+                if !visited.contains(child_key) && child_topo_order < upper_bound {
                     stack.push(*child_key);
                 }
             }
@@ -876,7 +876,7 @@ impl<T: Hash + Eq> IncrementalTopo<T> {
             for parent_key in &self.node_data[next_key].parents {
                 let parent_topo_order = self.node_data[*parent_key].topo_order;
 
-                if !visited.contains(&parent_key) && lower_bound < parent_topo_order {
+                if !visited.contains(parent_key) && lower_bound < parent_topo_order {
                     stack.push(*parent_key);
                 }
             }
