@@ -31,3 +31,9 @@ rand = "0.8.5"
 [[bench]]
 name = "basic_operations"
 harness = false
+
+[profile.bench]
+debug = true
+
+[profile.release]
+debug = true
