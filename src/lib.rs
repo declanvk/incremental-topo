@@ -84,11 +84,12 @@
 //!
 //! [paper by D. J. Pearce and P. H. J. Kelly]: http://www.doc.ic.ac.uk/~phjk/Publications/DynamicTopoSortAlg-JEA-07.pdf
 
+use fnv::FnvHashSet;
 use generational_arena::{Arena, Index as ArenaIndex};
 use std::{
     borrow::Borrow,
     cmp::{Ordering, Reverse},
-    collections::{BinaryHeap, HashSet},
+    collections::BinaryHeap,
     fmt,
     iter::Iterator,
 };
@@ -105,8 +106,13 @@ pub struct IncrementalTopo {
     last_topo_order: TopoOrder,
 }
 
-/// TODO
+/// An identifier of a node in the [`IncrementalTopo`] object.
+///
+/// This identifier contains metadata so that a node which has been passed to
+/// [`IncrementalTopo::delete_node`] will not be confused with a node created
+/// later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct Index(ArenaIndex);
 
 impl From<ArenaIndex> for Index {
@@ -115,21 +121,22 @@ impl From<ArenaIndex> for Index {
     }
 }
 
-/// TODO
+/// The representation of a node, with all information about it ordering, which
+/// nodes it points to, and which nodes point to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeData {
+struct NodeData {
     topo_order: TopoOrder,
-    parents: HashSet<ArenaIndex>,
-    children: HashSet<ArenaIndex>,
+    parents: FnvHashSet<ArenaIndex>,
+    children: FnvHashSet<ArenaIndex>,
 }
 
 impl NodeData {
-    /// TODO
-    pub fn new(topo_order: TopoOrder) -> Self {
+    /// Create a new node entry with the specified topological order.
+    fn new(topo_order: TopoOrder) -> Self {
         NodeData {
             topo_order,
-            parents: HashSet::new(),
-            children: HashSet::new(),
+            parents: FnvHashSet::default(),
+            children: FnvHashSet::default(),
         }
     }
 }
@@ -176,9 +183,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-/// TODO
-pub type Result<T> = std::result::Result<T, Error>;
 
 impl IncrementalTopo {
     /// Create a new IncrementalTopo graph.
@@ -352,7 +356,7 @@ impl IncrementalTopo {
         &mut self,
         prec: impl Borrow<Index>,
         succ: impl Borrow<Index>,
-    ) -> Result<bool> {
+    ) -> Result<bool, Error> {
         let prec = prec.borrow();
         let succ = succ.borrow();
 
@@ -386,7 +390,7 @@ impl IncrementalTopo {
         // the graph
         if lower_bound < upper_bound {
             log::trace!("Will change");
-            let mut visited = HashSet::new();
+            let mut visited = FnvHashSet::default();
 
             // Walk changes forward from the succ, checking for any cycles that would be
             // introduced
@@ -495,7 +499,7 @@ impl IncrementalTopo {
         // the overhead of the binary heap, and this task doesn't really need ordered
         // descendants.
         let mut stack = Vec::new();
-        let mut visited = HashSet::new();
+        let mut visited = FnvHashSet::default();
 
         stack.push(prec.0);
 
@@ -648,11 +652,6 @@ impl IncrementalTopo {
             .map(|(index, node)| (node.topo_order, index.into()))
     }
 
-    // FIXME(#1) mutable access not to be allowed
-    // pub fn iter_mut(&mut self) -> bimap::ValuesMut<T> {
-    //     self.node_keys.left_values_mut()
-    // }
-
     /// Return an iterator over the descendants of a node in the graph, in
     /// an unosrted order.
     ///
@@ -691,14 +690,17 @@ impl IncrementalTopo {
     ///
     /// assert_eq!(pairs, expected_pairs);
     /// ```
-    pub fn descendants_unsorted(&self, node: impl Borrow<Index>) -> Result<DescendantsUnsorted> {
+    pub fn descendants_unsorted(
+        &self,
+        node: impl Borrow<Index>,
+    ) -> Result<DescendantsUnsorted, Error> {
         let node = node.borrow();
         if !self.node_data.contains(node.0) {
             return Err(Error::NodeMissing);
         }
 
         let mut stack = Vec::new();
-        let visited = HashSet::new();
+        let visited = FnvHashSet::default();
 
         // Add all children of selected node
         stack.extend(&self.node_data[node.0].children);
@@ -744,7 +746,7 @@ impl IncrementalTopo {
     ///
     /// [`descendants_unsorted`]:
     /// struct.IncrementalTopo.html#method.descendants_unsorted
-    pub fn descendants(&self, node: impl Borrow<Index>) -> Result<Descendants> {
+    pub fn descendants(&self, node: impl Borrow<Index>) -> Result<Descendants, Error> {
         let node = node.borrow();
         if !self.node_data.contains(node.0) {
             return Err(Error::NodeMissing);
@@ -764,7 +766,7 @@ impl IncrementalTopo {
                 }),
         );
 
-        let visited = HashSet::new();
+        let visited = FnvHashSet::default();
 
         Ok(Descendants {
             dag: self,
@@ -813,11 +815,11 @@ impl IncrementalTopo {
     fn dfs_forward(
         &self,
         start_key: &ArenaIndex,
-        visited: &mut HashSet<ArenaIndex>,
+        visited: &mut FnvHashSet<ArenaIndex>,
         upper_bound: TopoOrder,
-    ) -> Result<HashSet<ArenaIndex>> {
+    ) -> Result<FnvHashSet<ArenaIndex>, Error> {
         let mut stack = Vec::new();
-        let mut result = HashSet::new();
+        let mut result = FnvHashSet::default();
 
         stack.push(start_key);
 
@@ -844,11 +846,11 @@ impl IncrementalTopo {
     fn dfs_backward(
         &self,
         start_key: &ArenaIndex,
-        visited: &mut HashSet<ArenaIndex>,
+        visited: &mut FnvHashSet<ArenaIndex>,
         lower_bound: TopoOrder,
-    ) -> HashSet<ArenaIndex> {
+    ) -> FnvHashSet<ArenaIndex> {
         let mut stack = Vec::new();
-        let mut result = HashSet::new();
+        let mut result = FnvHashSet::default();
 
         stack.push(start_key);
 
@@ -870,8 +872,8 @@ impl IncrementalTopo {
 
     fn reorder_nodes(
         &mut self,
-        change_forward: HashSet<ArenaIndex>,
-        change_backward: HashSet<ArenaIndex>,
+        change_forward: FnvHashSet<ArenaIndex>,
+        change_backward: FnvHashSet<ArenaIndex>,
     ) {
         let mut change_forward: Vec<_> = change_forward
             .into_iter()
@@ -911,7 +913,7 @@ impl IncrementalTopo {
 pub struct DescendantsUnsorted<'a> {
     dag: &'a IncrementalTopo,
     stack: Vec<ArenaIndex>,
-    visited: HashSet<ArenaIndex>,
+    visited: FnvHashSet<ArenaIndex>,
 }
 
 impl<'a> Iterator for DescendantsUnsorted<'a> {
@@ -941,7 +943,7 @@ impl<'a> Iterator for DescendantsUnsorted<'a> {
 pub struct Descendants<'a> {
     dag: &'a IncrementalTopo,
     queue: BinaryHeap<(Reverse<TopoOrder>, ArenaIndex)>,
-    visited: HashSet<ArenaIndex>,
+    visited: FnvHashSet<ArenaIndex>,
 }
 
 impl<'a> Iterator for Descendants<'a> {
@@ -974,7 +976,7 @@ mod tests {
     extern crate pretty_env_logger;
     use super::*;
 
-    fn get_basic_dag() -> Result<([Index; 7], IncrementalTopo)> {
+    fn get_basic_dag() -> Result<([Index; 7], IncrementalTopo), Error> {
         let mut dag = IncrementalTopo::new();
 
         let dog = dag.add_node();
@@ -1061,13 +1063,13 @@ mod tests {
     fn get_children_unordered() {
         let ([dog, cat, mouse, _, human, _, grass], dag) = get_basic_dag().unwrap();
 
-        let children: HashSet<_> = dag
+        let children: FnvHashSet<_> = dag
             .descendants_unsorted(&human)
             .unwrap()
             .map(|(_, v)| v)
             .collect();
 
-        let mut expected_children = HashSet::new();
+        let mut expected_children = FnvHashSet::default();
         expected_children.extend(vec![dog, cat, mouse, grass]);
 
         assert_eq!(children, expected_children);
@@ -1080,13 +1082,13 @@ mod tests {
     fn topo_order_values_no_gaps() {
         let ([.., lion, _, _, _], dag) = get_basic_dag().unwrap();
 
-        let topo_orders: HashSet<_> = dag
+        let topo_orders: FnvHashSet<_> = dag
             .descendants_unsorted(lion)
             .unwrap()
             .map(|p| p.0)
             .collect();
 
-        assert_eq!(topo_orders, (2..=7).collect::<HashSet<_>>())
+        assert_eq!(topo_orders, (2..=7).collect::<FnvHashSet<_>>())
     }
 
     #[test]
@@ -1125,9 +1127,9 @@ mod tests {
         let pairs = dag
             .descendants_unsorted(&human)
             .unwrap()
-            .collect::<HashSet<_>>();
+            .collect::<FnvHashSet<_>>();
 
-        let mut expected_pairs = HashSet::new();
+        let mut expected_pairs = FnvHashSet::default();
         expected_pairs.extend(vec![(2, dog), (3, cat), (4, mouse)]);
 
         assert_eq!(pairs, expected_pairs);
