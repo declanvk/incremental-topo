@@ -63,26 +63,20 @@ impl From<u32> for Value {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-struct Symbol(usize);
-
-impl Default for Symbol {
-    fn default() -> Self {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static SYMBOL_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-        Symbol(SYMBOL_COUNT.fetch_add(1, Ordering::Relaxed))
-    }
-}
+type Symbol = topo::Index;
 
 #[derive(Debug, Clone, Default)]
 struct Assignments {
     bindings: HashMap<Symbol, Rc<Expr>>,
-    ordering: IncrementalTopo<Symbol>,
+    ordering: IncrementalTopo,
     values: HashMap<Symbol, Value>,
 }
 
 impl Assignments {
+    fn new_symbol(&mut self) -> Symbol {
+        self.ordering.add_node()
+    }
+
     fn add(&mut self, target: Symbol, expr: Rc<Expr>) -> Result<Value, Error> {
         if self.bindings.contains_key(&target) {
             return Err(Error::DuplicateBinding)?;
@@ -102,8 +96,6 @@ impl Assignments {
                 return Err(Error::MissingBinding(*var))?;
             }
         }
-
-        self.ordering.add_node(target);
 
         // List of symbols a dependence was successfully added to
         // If an error occurs, then all of these must be deleted
@@ -195,9 +187,9 @@ impl Assignments {
 
         // Get all descendants of current target + target
         for descendant in self.ordering.descendants(&target)? {
-            let descendant_expr = self.bindings.get(&descendant).unwrap();
+            let descendant_expr = self.bindings.get(&descendant.into()).unwrap();
             let new_value = descendant_expr.evaluate(&self.values)?;
-            self.values.insert(*descendant, new_value).unwrap();
+            self.values.insert(descendant.into(), new_value).unwrap();
         }
 
         Ok(top_value)
@@ -240,56 +232,76 @@ enum Expr {
 
 impl Expr {
     // Constructors
-    fn literal<V: Into<Value>>(v: V) -> (Symbol, Rc<Self>) {
-        (Symbol::default(), v.into().into())
+    fn literal<V: Into<Value>>(a: &mut Assignments, v: V) -> (Symbol, Rc<Self>) {
+        (a.new_symbol(), v.into().into())
     }
 
-    fn add<L: Into<Rc<Self>>, R: Into<Rc<Self>>>(left: L, right: R) -> (Symbol, Rc<Self>) {
+    fn add<L: Into<Self>, R: Into<Self>>(
+        a: &mut Assignments,
+        left: L,
+        right: R,
+    ) -> (Symbol, Rc<Self>) {
         use BinopType::*;
         use Expr::*;
 
         (
-            Symbol::default(),
-            Rc::new(Binop(Add, left.into(), right.into())),
+            a.new_symbol(),
+            Rc::new(Binop(Add, Rc::new(left.into()), Rc::new(right.into()))),
         )
     }
 
     #[allow(dead_code)]
-    fn subtract<L: Into<Rc<Self>>, R: Into<Rc<Self>>>(left: L, right: R) -> (Symbol, Rc<Self>) {
+    fn subtract<L: Into<Self>, R: Into<Self>>(
+        a: &mut Assignments,
+        left: L,
+        right: R,
+    ) -> (Symbol, Rc<Self>) {
         use BinopType::*;
         use Expr::*;
 
         (
-            Symbol::default(),
-            Rc::new(Binop(Sub, left.into(), right.into())),
+            a.new_symbol(),
+            Rc::new(Binop(Sub, Rc::new(left.into()), Rc::new(right.into()))),
         )
     }
 
-    fn multiply<L: Into<Rc<Self>>, R: Into<Rc<Self>>>(left: L, right: R) -> (Symbol, Rc<Self>) {
+    fn multiply<L: Into<Self>, R: Into<Self>>(
+        a: &mut Assignments,
+        left: L,
+        right: R,
+    ) -> (Symbol, Rc<Self>) {
         use BinopType::*;
         use Expr::*;
 
         (
-            Symbol::default(),
-            Rc::new(Binop(Mult, left.into(), right.into())),
+            a.new_symbol(),
+            Rc::new(Binop(Mult, Rc::new(left.into()), Rc::new(right.into()))),
         )
     }
 
     #[allow(dead_code)]
-    fn divide<L: Into<Rc<Self>>, R: Into<Rc<Self>>>(left: L, right: R) -> (Symbol, Rc<Self>) {
+    fn divide<L: Into<Self>, R: Into<Self>>(
+        a: &mut Assignments,
+        left: L,
+        right: R,
+    ) -> (Symbol, Rc<Self>) {
         use BinopType::*;
         use Expr::*;
 
         (
-            Symbol::default(),
-            Rc::new(Binop(Div, left.into(), right.into())),
+            a.new_symbol(),
+            Rc::new(Binop(Div, Rc::new(left.into()), Rc::new(right.into()))),
         )
     }
 
-    fn unary_func<E: Into<Rc<Self>>>(func: fn(Value) -> Value, expr: E) -> (Symbol, Rc<Self>) {
+    fn unary_func<E: Into<Self>>(
+        a: &mut Assignments,
+        func: fn(Value) -> Value,
+        expr: E,
+    ) -> (Symbol, Rc<Self>) {
         use Expr::*;
 
-        (Symbol::default(), Rc::new(Unop(func, expr.into())))
+        (a.new_symbol(), Rc::new(Unop(func, Rc::new(expr.into()))))
     }
 
     fn find_free_vars(&self) -> HashSet<Symbol> {
@@ -342,9 +354,9 @@ impl Expr {
     }
 }
 
-impl From<Symbol> for Rc<Expr> {
+impl From<Symbol> for Expr {
     fn from(src: Symbol) -> Self {
-        Rc::new(Expr::Var(src))
+        Expr::Var(src)
     }
 }
 
@@ -372,43 +384,49 @@ fn main() {
     use BinopType::*;
     use Expr::*;
 
-    // Create symbolic vectors
-    let (x1_s, x1) = Expr::literal(1);
-    let (x2_s, x2) = Expr::literal(2);
-    let (x3_s, x3) = Expr::literal(3);
+    let mut asgns = Assignments::default();
 
-    let (y1_s, y1) = Expr::literal(4);
-    let (y2_s, y2) = Expr::literal(5);
-    let (y3_s, y3) = Expr::literal(6);
+    // Create symbolic vectors
+    let (x1_s, x1) = Expr::literal(&mut asgns, 1);
+    let (x2_s, x2) = Expr::literal(&mut asgns, 2);
+    let (x3_s, x3) = Expr::literal(&mut asgns, 3);
+
+    let (y1_s, y1) = Expr::literal(&mut asgns, 4);
+    let (y2_s, y2) = Expr::literal(&mut asgns, 5);
+    let (y3_s, y3) = Expr::literal(&mut asgns, 6);
 
     // Create dependent expressions that compute the dot product
-    let (v1_s, v1) = Expr::multiply(x1_s, y1_s);
-    let (v2_s, v2) = Expr::multiply(x2_s, y2_s);
-    let (v3_s, v3) = Expr::multiply(x3_s, y3_s);
+    let (v1_s, v1) = Expr::multiply(&mut asgns, x1_s, y1_s);
+    let (v2_s, v2) = Expr::multiply(&mut asgns, x2_s, y2_s);
+    let (v3_s, v3) = Expr::multiply(&mut asgns, x3_s, y3_s);
 
     // The final dot product value
-    let (v_s, v) = Expr::add(v1_s, Rc::new(Binop(Add, v2_s.into(), v3_s.into())));
+    let (v_s, v) = Expr::add(
+        &mut asgns,
+        v1_s,
+        Binop(Add, Rc::new(v2_s.into()), Rc::new(v3_s.into())),
+    );
 
     // Compute magnitude
     let (mx_s, mx) = Expr::unary_func(
+        &mut asgns,
         sqrt,
         Binop(
             Add,
-            x1_s.into(),
-            Rc::new(Binop(Add, x2_s.into(), x3_s.into())),
+            Rc::new(x1_s.into()),
+            Rc::new(Binop(Add, Rc::new(x2_s.into()), Rc::new(x3_s.into()))),
         ),
     );
 
     let (my_s, my) = Expr::unary_func(
+        &mut asgns,
         sqrt,
         Binop(
             Add,
-            y1_s.into(),
-            Rc::new(Binop(Add, y2_s.into(), y3_s.into())),
+            Rc::new(y1_s.into()),
+            Rc::new(Binop(Add, Rc::new(y2_s.into()), Rc::new(y3_s.into()))),
         ),
     );
-
-    let mut asgns = Assignments::default();
 
     // Assign values to vector components
     asgns.add(x1_s, x1).unwrap();
@@ -438,7 +456,7 @@ fn main() {
     );
 
     // Change initial value
-    asgns.update(x1_s, Value(10.0.into()).into()).unwrap();
+    asgns.update(x1_s, Value::from(10).into()).unwrap();
 
     // Read new value of dot product
     let dot_product = asgns.read(&v_s).unwrap();

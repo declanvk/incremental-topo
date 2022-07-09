@@ -1,210 +1,190 @@
-#[macro_use]
-extern crate criterion;
-extern crate criterion_perf_events;
-extern crate incremental_topo;
-extern crate perfcnt;
-extern crate rand;
-
-use criterion::{BatchSize, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use criterion_perf_events::Perf;
-use incremental_topo::IncrementalTopo;
+use incremental_topo::{self as topo, IncrementalTopo};
 use perfcnt::linux::{HardwareEventType, PerfCounterBuilderLinux};
+use rand::{
+    distributions::Distribution,
+    prelude::{SliceRandom, ThreadRng},
+};
 
 const DEFAULT_DENSITY: f32 = 0.1;
 const DEFAULT_SIZE: u64 = 1000;
 
-fn generate_random_dag(size: u64, density: f32) -> IncrementalTopo<u64> {
-    use rand::distributions::{Bernoulli, Distribution};
+fn generate_random_dag(
+    rng: &mut ThreadRng,
+    size: u64,
+    density: f32,
+) -> (Vec<topo::Index>, IncrementalTopo) {
+    use rand::distributions::Bernoulli;
+
     assert!(0.0 < density && density <= 1.0);
-    let mut rng = rand::thread_rng();
     let dist = Bernoulli::new(density.into()).unwrap();
     let mut topo = IncrementalTopo::new();
 
-    for node in 0..size {
-        topo.add_node(node);
-    }
+    let nodes: Vec<_> = (0..size).map(|_| topo.add_node()).collect();
 
-    for i in 0..size {
-        for j in 0..size {
-            if i != j && dist.sample(&mut rng) {
+    for i in nodes.iter() {
+        for j in nodes.iter() {
+            if i != j && dist.sample(rng) {
                 // Ignore failures
-                let _ = topo.add_dependency(&i, &j);
+                let _ = topo.add_dependency(i, j);
             }
         }
     }
 
-    topo
+    (nodes, topo)
 }
 
 fn criterion_benchmark(c: &mut Criterion<Perf>) {
-    use rand::distributions::{Distribution, Uniform};
+    let mut rng = rand::thread_rng();
 
-    let mut random_graph_different_density_group =
-        c.benchmark_group("random_graph_different_density");
+    let mut mutate_graph_group = c.benchmark_group("mutate_graph");
 
     for density in [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1] {
-        random_graph_different_density_group.bench_with_input(
-            criterion::BenchmarkId::new("single_insert", density),
-            &density,
-            |b, &density| {
-                let dag = generate_random_dag(750, density);
-                let mut rng = rand::thread_rng();
-                let dist = Uniform::new(0, 750);
+        let (nodes, dag) = generate_random_dag(&mut rng, 750, density);
 
+        mutate_graph_group.bench_with_input(
+            criterion::BenchmarkId::new("add_dependency", density),
+            &density,
+            |b, _| {
                 b.iter_batched(
                     || {
-                        let i = dist.sample(&mut rng);
-                        let j = dist.sample(&mut rng);
+                        let i = nodes.choose(&mut rng).unwrap();
+                        let j = nodes.choose(&mut rng).unwrap();
                         let dag = dag.clone();
 
                         (i, j, dag)
                     },
-                    |(i, j, mut dag)| {
-                        let _ = dag.add_dependency(&i, &j);
+                    |(i, j, mut dag)| dag.add_dependency(i, j),
+                    BatchSize::SmallInput,
+                );
+            },
+        );
+
+        mutate_graph_group.bench_with_input(
+            BenchmarkId::new("delete_node", density),
+            &density,
+            |b, _| {
+                b.iter_batched(
+                    || dag.clone(),
+                    |mut dag| dag.delete_node(nodes[500]),
+                    BatchSize::SmallInput,
+                );
+            },
+        );
+
+        mutate_graph_group.bench_with_input(
+            BenchmarkId::new("delete_dependency", density),
+            &density,
+            |b, _| {
+                b.iter_batched(
+                    || {
+                        let i = nodes.choose(&mut rng).unwrap();
+                        let j = nodes.choose(&mut rng).unwrap();
+                        let dag = dag.clone();
+
+                        (i, j, dag)
                     },
+                    |(i, j, mut dag)| dag.delete_dependency(i, j),
                     BatchSize::SmallInput,
                 );
             },
         );
     }
 
+    mutate_graph_group.finish();
+
+    let mut query_graph_group = c.benchmark_group("query_graph");
+
     for density in [0.02, 0.04, 0.06, 0.08, 0.1] {
-        random_graph_different_density_group.bench_with_input(
+        let (nodes, dag) = generate_random_dag(&mut rng, DEFAULT_SIZE, density);
+
+        query_graph_group.bench_with_input(
             BenchmarkId::new("contains_dependency", density),
             &density,
-            |b, &density| {
-                let dag = generate_random_dag(DEFAULT_SIZE, density);
-                let mut rng = rand::thread_rng();
-                let dist = Uniform::new(0, DEFAULT_SIZE);
-
+            |b, _| {
                 b.iter_batched(
                     || {
-                        let i = dist.sample(&mut rng);
-                        let j = dist.sample(&mut rng);
+                        let i = nodes.choose(&mut rng).unwrap();
+                        let j = nodes.choose(&mut rng).unwrap();
 
                         (i, j)
                     },
-                    |(i, j)| {
-                        let _ = dag.contains_dependency(&i, &j);
+                    |(i, j)| dag.contains_dependency(i, j),
+                    BatchSize::SmallInput,
+                );
+            },
+        );
+
+        query_graph_group.bench_with_input(
+            BenchmarkId::new("contains_node", density),
+            &density,
+            |b, _| {
+                b.iter(|| dag.contains_node(nodes[500]));
+            },
+        );
+
+        query_graph_group.bench_with_input(
+            BenchmarkId::new("contains_transitive_dependency", density),
+            &density,
+            |b, _| {
+                b.iter_batched(
+                    || {
+                        let i = nodes.choose(&mut rng).unwrap();
+                        let j = nodes.choose(&mut rng).unwrap();
+
+                        (i, j)
                     },
+                    |(i, j)| dag.contains_transitive_dependency(i, j),
                     BatchSize::SmallInput,
                 );
             },
         );
     }
 
-    random_graph_different_density_group.finish();
+    query_graph_group.finish();
 
     c.bench_function("clone", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
+        let dag = generate_random_dag(&mut rng, DEFAULT_SIZE, DEFAULT_DENSITY);
 
         b.iter(|| dag.clone());
     });
 
-    c.bench_function("contains_node", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-
-        b.iter_batched_ref(
-            || dag.clone(),
-            |dag| {
-                dag.contains_node(&500);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-
-    c.bench_function("delete_node", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-
-        b.iter_batched(
-            || dag.clone(),
-            |mut dag| dag.delete_node(&500),
-            BatchSize::SmallInput,
-        );
-    });
-
-    c.bench_function("contains_transitive_dependency", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-        let mut rng = rand::thread_rng();
-        let dist = Uniform::new(0, DEFAULT_SIZE);
-
-        b.iter_batched(
-            || {
-                let i = dist.sample(&mut rng);
-                let j = dist.sample(&mut rng);
-
-                (i, j)
-            },
-            |(i, j)| {
-                let _ = dag.contains_transitive_dependency(&i, &j);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-
-    c.bench_function("delete_dependency", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-        let mut rng = rand::thread_rng();
-        let dist = Uniform::new(0, DEFAULT_SIZE);
-
-        b.iter_batched(
-            || {
-                let i = dist.sample(&mut rng);
-                let j = dist.sample(&mut rng);
-                let dag = dag.clone();
-
-                (i, j, dag)
-            },
-            |(i, j, mut dag)| {
-                let _ = dag.delete_dependency(&i, &j);
-            },
-            BatchSize::SmallInput,
-        );
-    });
-
     c.bench_function("descendants_unsorted", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-        let mut rng = rand::thread_rng();
-        let dist = Uniform::new(0, DEFAULT_SIZE);
+        let (nodes, dag) = generate_random_dag(&mut rng, DEFAULT_SIZE, DEFAULT_DENSITY);
 
         b.iter_batched(
-            || dist.sample(&mut rng),
+            || nodes.choose(&mut rng).unwrap(),
             |i| {
-                dag.descendants_unsorted(&i).unwrap().for_each(|v| drop(v));
+                dag.descendants_unsorted(i).unwrap().for_each(|v| drop(v));
             },
             BatchSize::SmallInput,
         );
     });
 
     c.bench_function("descendants", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-        let mut rng = rand::thread_rng();
-        let dist = Uniform::new(0, DEFAULT_SIZE);
+        let (nodes, dag) = generate_random_dag(&mut rng, DEFAULT_SIZE, DEFAULT_DENSITY);
 
         b.iter_batched(
-            || dist.sample(&mut rng),
+            || nodes.choose(&mut rng).unwrap(),
             |i| {
-                dag.descendants(&i).unwrap().for_each(|v| drop(v));
+                dag.descendants(i).unwrap().for_each(|v| drop(v));
             },
             BatchSize::SmallInput,
         );
     });
 
     c.bench_function("topo_cmp", |b| {
-        let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
-        let mut rng = rand::thread_rng();
-        let dist = Uniform::new(0, DEFAULT_SIZE);
+        let (nodes, dag) = generate_random_dag(&mut rng, DEFAULT_SIZE, DEFAULT_DENSITY);
 
         b.iter_batched(
             || {
-                let i = dist.sample(&mut rng);
-                let j = dist.sample(&mut rng);
+                let i = nodes.choose(&mut rng).unwrap();
+                let j = nodes.choose(&mut rng).unwrap();
 
                 (i, j)
             },
-            |(i, j)| {
-                let _ = dag.topo_cmp(&i, &j).unwrap();
-            },
+            |(i, j)| dag.topo_cmp(i, j),
             BatchSize::SmallInput,
         );
     });
