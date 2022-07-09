@@ -15,18 +15,18 @@ license = "MIT/Apache-2.0"
 
 
 [dependencies]
-failure = "~0.1.2"
-failure_derive = "~0.1.2"
-slab = "~0.4.1"
-log = "~0.4.5"
+failure = "0.1.8"
+failure_derive = "0.1.8"
+slab = "0.4.6"
+log = "0.4.17"
 
 [dev-dependencies]
-pretty_env_logger = "~0.4.0"
-failure = "~0.1.2"
-failure_derive = "~0.1.2"
-ordered-float = "~3.0.0"
-criterion = "0.3.4"
-rand = "~0.8.0"
+pretty_env_logger = "0.4.0"
+failure = "0.1.8"
+failure_derive = "0.1.8"
+ordered-float = "3.0.0"
+criterion = "0.3.6"
+rand = "0.8.5"
 
 [[bench]]
 name = "basic_operations"

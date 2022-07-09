@@ -3,8 +3,7 @@ extern crate criterion;
 extern crate incremental_topo;
 extern crate rand;
 
-use criterion::Criterion;
-
+use criterion::{BatchSize, Criterion};
 use incremental_topo::IncrementalTopo;
 
 const DEFAULT_DENSITY: f32 = 0.1;
@@ -14,7 +13,7 @@ fn generate_random_dag(size: u64, density: f32) -> IncrementalTopo<u64> {
     use rand::distributions::{Bernoulli, Distribution};
     assert!(0.0 < density && density <= 1.0);
     let mut rng = rand::thread_rng();
-    let dist = Bernoulli::new(density.into());
+    let dist = Bernoulli::new(density.into()).unwrap();
     let mut topo = IncrementalTopo::new();
 
     for node in 0..size {
@@ -45,10 +44,13 @@ fn criterion_benchmark(c: &mut Criterion) {
             let i = dist.sample(&mut rng);
             let j = dist.sample(&mut rng);
 
-            b.iter(|| {
-                let mut dag = dag.clone();
-                let _ = dag.add_dependency(&i, &j);
-            });
+            b.iter_batched_ref(
+                || dag.clone(),
+                |dag| {
+                    let _ = dag.add_dependency(&i, &j);
+                },
+                BatchSize::SmallInput,
+            );
         },
         &[0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1],
     );
@@ -62,13 +64,23 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("contains_node", |b| {
         let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
 
-        b.iter(|| dag.clone().contains_node(&500));
+        b.iter_batched_ref(
+            || dag.clone(),
+            |dag| {
+                dag.contains_node(&500);
+            },
+            BatchSize::SmallInput,
+        );
     });
 
     c.bench_function("delete_node", |b| {
         let dag = generate_random_dag(DEFAULT_SIZE, DEFAULT_DENSITY);
 
-        b.iter(|| dag.clone().delete_node(&500));
+        b.iter_batched(
+            || dag.clone(),
+            |mut dag| dag.delete_node(&500),
+            BatchSize::SmallInput,
+        );
     });
 
     c.bench_function_over_inputs(
@@ -78,11 +90,18 @@ fn criterion_benchmark(c: &mut Criterion) {
             let mut rng = rand::thread_rng();
             let dist = Uniform::new(0, DEFAULT_SIZE);
 
-            b.iter(|| {
-                let i = dist.sample(&mut rng);
-                let j = dist.sample(&mut rng);
-                let _ = dag.contains_dependency(&i, &j);
-            });
+            b.iter_batched(
+                || {
+                    let i = dist.sample(&mut rng);
+                    let j = dist.sample(&mut rng);
+
+                    (i, j)
+                },
+                |(i, j)| {
+                    let _ = dag.contains_dependency(&i, &j);
+                },
+                BatchSize::SmallInput,
+            );
         },
         &[0.02, 0.04, 0.06, 0.08, 0.1],
     );
@@ -104,11 +123,19 @@ fn criterion_benchmark(c: &mut Criterion) {
         let mut rng = rand::thread_rng();
         let dist = Uniform::new(0, DEFAULT_SIZE);
 
-        b.iter(|| {
-            let i = dist.sample(&mut rng);
-            let j = dist.sample(&mut rng);
-            let _ = dag.clone().delete_dependency(&i, &j);
-        });
+        b.iter_batched(
+            || {
+                let i = dist.sample(&mut rng);
+                let j = dist.sample(&mut rng);
+                let dag = dag.clone();
+
+                (dag, i, j)
+            },
+            |(mut dag, i, j)| {
+                let _ = dag.delete_dependency(&i, &j);
+            },
+            BatchSize::SmallInput,
+        );
     });
 
     c.bench_function("descendants_unsorted", |b| {
