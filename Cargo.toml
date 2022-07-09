@@ -6,18 +6,14 @@ description = "Data structure to maintain an incremental topological ordering ov
 repository = "https://github.com/declanvk/incremental-topo/"
 documentation = "https://docs.rs/incremental-topo/"
 readme = "README.md"
-edition = "2018"
-
+edition = "2021"
 keywords = ["data-structures", "dag", "graph", "incremental", "topological"]
 categories = ["algorithms", "data-structures"]
-
 license = "MIT/Apache-2.0"
 
 
 [dependencies]
-failure = "0.1.8"
-failure_derive = "0.1.8"
-slab = "0.4.6"
+generational-arena = "0.2.8"
 log = "0.4.17"
 
 [dev-dependencies]
