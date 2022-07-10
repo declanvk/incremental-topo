@@ -63,7 +63,7 @@ impl From<u32> for Value {
     }
 }
 
-type Symbol = topo::Index;
+type Symbol = topo::Node;
 
 #[derive(Debug, Clone, Default)]
 struct Assignments {
