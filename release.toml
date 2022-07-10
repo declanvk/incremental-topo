@@ -1,0 +1,4 @@
+allow-branch = ["main"]
+pre-release-replacements = [
+    {file = "README.md", search="incremental-topo = .*", replace="{{crate_name}} = \"{{version}}\""}
+]
