@@ -121,13 +121,33 @@ impl From<ArenaIndex> for Index {
     }
 }
 
+/// An identifier of a node that is lacking additional safety metadata that
+/// prevents ABA issues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct UnsafeIndex(usize);
+
+impl From<Index> for UnsafeIndex {
+    fn from(src: Index) -> Self {
+        // extract index part of [`ArenaIndex`], discarding generation information
+        UnsafeIndex(src.0.into_raw_parts().0)
+    }
+}
+
+impl From<&Index> for UnsafeIndex {
+    fn from(src: &Index) -> Self {
+        // extract index part of [`ArenaIndex`], discarding generation information
+        UnsafeIndex(src.0.into_raw_parts().0)
+    }
+}
+
 /// The representation of a node, with all information about it ordering, which
 /// nodes it points to, and which nodes point to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NodeData {
     topo_order: TopoOrder,
-    parents: FnvHashSet<ArenaIndex>,
-    children: FnvHashSet<ArenaIndex>,
+    parents: FnvHashSet<UnsafeIndex>,
+    children: FnvHashSet<UnsafeIndex>,
 }
 
 impl NodeData {
@@ -295,15 +315,15 @@ impl IncrementalTopo {
 
         // Delete forward edges
         for child in data.children {
-            if let Some(child_data) = self.node_data.get_mut(child) {
-                child_data.parents.remove(&node.0);
+            if let Some((child_data, _)) = self.node_data.get_unknown_gen_mut(child.0) {
+                child_data.parents.remove(&node.into());
             }
         }
 
         // Delete backward edges
         for parent in data.parents {
-            if let Some(parent_data) = self.node_data.get_mut(parent) {
-                parent_data.children.remove(&node.0);
+            if let Some((parent_data, _)) = self.node_data.get_unknown_gen_mut(parent.0) {
+                parent_data.children.remove(&node.into());
             }
         }
 
@@ -366,11 +386,11 @@ impl IncrementalTopo {
         }
 
         // Insert forward edge
-        let mut no_prev_edge = self.node_data[prec.0].children.insert(succ.0);
+        let mut no_prev_edge = self.node_data[prec.0].children.insert(succ.into());
         let upper_bound = self.node_data[prec.0].topo_order;
 
         // Insert backward edge
-        no_prev_edge = no_prev_edge && self.node_data[succ.0].parents.insert(prec.0);
+        no_prev_edge = no_prev_edge && self.node_data[succ.0].parents.insert(prec.into());
         let lower_bound = self.node_data[succ.0].topo_order;
 
         // If edge already exists short circuit
@@ -394,10 +414,10 @@ impl IncrementalTopo {
 
             // Walk changes forward from the succ, checking for any cycles that would be
             // introduced
-            let change_forward = self.dfs_forward(&succ.0, &mut visited, upper_bound)?;
+            let change_forward = self.dfs_forward(succ.into(), &mut visited, upper_bound)?;
             log::trace!("Change forward: {:?}", change_forward);
             // Walk backwards from the prec
-            let change_backward = self.dfs_backward(&prec.0, &mut visited, lower_bound);
+            let change_backward = self.dfs_backward(prec.into(), &mut visited, lower_bound);
             log::trace!("Change backward: {:?}", change_backward);
 
             self.reorder_nodes(change_forward, change_backward);
@@ -443,7 +463,7 @@ impl IncrementalTopo {
             return false;
         }
 
-        self.node_data[prec.0].children.contains(&succ.0)
+        self.node_data[prec.0].children.contains(&succ.into())
     }
 
     /// Returns true if the graph contains a transitive dependency from
@@ -501,7 +521,7 @@ impl IncrementalTopo {
         let mut stack = Vec::new();
         let mut visited = FnvHashSet::default();
 
-        stack.push(prec.0);
+        stack.push(UnsafeIndex::from(prec));
 
         // For each node key popped off the stack, check that we haven't seen it
         // before, then check if its children contain the node we're searching for.
@@ -513,9 +533,9 @@ impl IncrementalTopo {
                 visited.insert(key);
             }
 
-            let children = &self.node_data[key].children;
+            let children = &self.node_data.get_unknown_gen(key.0).unwrap().0.children;
 
-            if children.contains(&succ.0) {
+            if children.contains(&succ.into()) {
                 return true;
             } else {
                 stack.extend(children);
@@ -574,12 +594,12 @@ impl IncrementalTopo {
 
         let prec_children = &mut self.node_data[prec.0].children;
 
-        if !prec_children.contains(&succ.0) {
+        if !prec_children.contains(&succ.into()) {
             return false;
         }
 
-        prec_children.remove(&succ.0);
-        self.node_data[succ.0].parents.remove(&prec.0);
+        prec_children.remove(&succ.into());
+        self.node_data[succ.0].parents.remove(&prec.into());
 
         true
     }
@@ -761,7 +781,7 @@ impl IncrementalTopo {
                 .iter()
                 .cloned()
                 .map(|child_key| {
-                    let child_order = self.node_data[child_key].topo_order;
+                    let child_order = self.get_node_data(child_key).topo_order;
                     (Reverse(child_order), child_key)
                 }),
         );
@@ -814,28 +834,28 @@ impl IncrementalTopo {
 
     fn dfs_forward(
         &self,
-        start_key: &ArenaIndex,
-        visited: &mut FnvHashSet<ArenaIndex>,
+        start_key: UnsafeIndex,
+        visited: &mut FnvHashSet<UnsafeIndex>,
         upper_bound: TopoOrder,
-    ) -> Result<FnvHashSet<ArenaIndex>, Error> {
+    ) -> Result<FnvHashSet<UnsafeIndex>, Error> {
         let mut stack = Vec::new();
         let mut result = FnvHashSet::default();
 
         stack.push(start_key);
 
         while let Some(next_key) = stack.pop() {
-            visited.insert(*next_key);
-            result.insert(*next_key);
+            visited.insert(next_key);
+            result.insert(next_key);
 
-            for child_key in &self.node_data[*next_key].children {
-                let child_topo_order = self.node_data[*child_key].topo_order;
+            for child_key in &self.get_node_data(next_key).children {
+                let child_topo_order = self.get_node_data(*child_key).topo_order;
 
                 if child_topo_order == upper_bound {
                     return Err(Error::CycleDetected);
                 }
 
                 if !visited.contains(child_key) && child_topo_order < upper_bound {
-                    stack.push(child_key);
+                    stack.push(*child_key);
                 }
             }
         }
@@ -845,24 +865,24 @@ impl IncrementalTopo {
 
     fn dfs_backward(
         &self,
-        start_key: &ArenaIndex,
-        visited: &mut FnvHashSet<ArenaIndex>,
+        start_key: UnsafeIndex,
+        visited: &mut FnvHashSet<UnsafeIndex>,
         lower_bound: TopoOrder,
-    ) -> FnvHashSet<ArenaIndex> {
+    ) -> FnvHashSet<UnsafeIndex> {
         let mut stack = Vec::new();
         let mut result = FnvHashSet::default();
 
         stack.push(start_key);
 
         while let Some(next_key) = stack.pop() {
-            visited.insert(*next_key);
-            result.insert(*next_key);
+            visited.insert(next_key);
+            result.insert(next_key);
 
-            for parent_key in &self.node_data[*next_key].parents {
-                let parent_topo_order = self.node_data[*parent_key].topo_order;
+            for parent_key in &self.get_node_data(next_key).parents {
+                let parent_topo_order = self.get_node_data(*parent_key).topo_order;
 
                 if !visited.contains(parent_key) && lower_bound < parent_topo_order {
-                    stack.push(parent_key);
+                    stack.push(*parent_key);
                 }
             }
         }
@@ -872,18 +892,18 @@ impl IncrementalTopo {
 
     fn reorder_nodes(
         &mut self,
-        change_forward: FnvHashSet<ArenaIndex>,
-        change_backward: FnvHashSet<ArenaIndex>,
+        change_forward: FnvHashSet<UnsafeIndex>,
+        change_backward: FnvHashSet<UnsafeIndex>,
     ) {
         let mut change_forward: Vec<_> = change_forward
             .into_iter()
-            .map(|key| (key, self.node_data[key].topo_order))
+            .map(|key| (key, self.get_node_data(key).topo_order))
             .collect();
         change_forward.sort_unstable_by_key(|pair| pair.1);
 
         let mut change_backward: Vec<_> = change_backward
             .into_iter()
-            .map(|key| (key, self.node_data[key].topo_order))
+            .map(|key| (key, self.get_node_data(key).topo_order))
             .collect();
         change_backward.sort_unstable_by_key(|pair| pair.1);
 
@@ -903,8 +923,16 @@ impl IncrementalTopo {
         all_topo_orders.sort_unstable();
 
         for (key, topo_order) in all_keys.into_iter().zip(all_topo_orders.into_iter()) {
-            self.node_data[key].topo_order = topo_order;
+            self.node_data
+                .get_unknown_gen_mut(key.0)
+                .unwrap()
+                .0
+                .topo_order = topo_order;
         }
+    }
+
+    fn get_node_data(&self, idx: UnsafeIndex) -> &NodeData {
+        self.node_data.get_unknown_gen(idx.0).unwrap().0
     }
 }
 
@@ -912,8 +940,8 @@ impl IncrementalTopo {
 #[derive(Debug)]
 pub struct DescendantsUnsorted<'a> {
     dag: &'a IncrementalTopo,
-    stack: Vec<ArenaIndex>,
-    visited: FnvHashSet<ArenaIndex>,
+    stack: Vec<UnsafeIndex>,
+    visited: FnvHashSet<UnsafeIndex>,
 }
 
 impl<'a> Iterator for DescendantsUnsorted<'a> {
@@ -927,11 +955,13 @@ impl<'a> Iterator for DescendantsUnsorted<'a> {
                 self.visited.insert(key);
             }
 
-            let order = self.dag.node_data[key].topo_order;
+            let (node_data, index) = self.dag.node_data.get_unknown_gen(key.0).unwrap();
 
-            self.stack.extend(&self.dag.node_data[key].children);
+            let order = node_data.topo_order;
 
-            return Some((order, key.into()));
+            self.stack.extend(&node_data.children);
+
+            return Some((order, index.into()));
         }
 
         None
@@ -942,8 +972,8 @@ impl<'a> Iterator for DescendantsUnsorted<'a> {
 #[derive(Debug)]
 pub struct Descendants<'a> {
     dag: &'a IncrementalTopo,
-    queue: BinaryHeap<(Reverse<TopoOrder>, ArenaIndex)>,
-    visited: FnvHashSet<ArenaIndex>,
+    queue: BinaryHeap<(Reverse<TopoOrder>, UnsafeIndex)>,
+    visited: FnvHashSet<UnsafeIndex>,
 }
 
 impl<'a> Iterator for Descendants<'a> {
@@ -958,12 +988,14 @@ impl<'a> Iterator for Descendants<'a> {
                     self.visited.insert(key);
                 }
 
-                for child in &self.dag.node_data[key].children {
-                    let order = self.dag.node_data[*child].topo_order;
+                let (node_data, index) = self.dag.node_data.get_unknown_gen(key.0).unwrap();
+
+                for child in &node_data.children {
+                    let order = self.dag.get_node_data(*child).topo_order;
                     self.queue.push((Reverse(order), *child))
                 }
 
-                return Some(key.into());
+                return Some(index.into());
             } else {
                 return None;
             }
