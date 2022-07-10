@@ -27,6 +27,8 @@ failure_derive = "0.1.8"
 ordered-float = "3.0.0"
 criterion = "0.3.6"
 rand = "0.8.5"
+criterion-perf-events = "0.2.0"
+perfcnt = "0.8.0"
 
 [[bench]]
 name = "basic_operations"

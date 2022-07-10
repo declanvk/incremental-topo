@@ -1,10 +1,14 @@
 #[macro_use]
 extern crate criterion;
+extern crate criterion_perf_events;
 extern crate incremental_topo;
+extern crate perfcnt;
 extern crate rand;
 
 use criterion::{BatchSize, BenchmarkId, Criterion};
+use criterion_perf_events::Perf;
 use incremental_topo::IncrementalTopo;
+use perfcnt::linux::{HardwareEventType, PerfCounterBuilderLinux};
 
 const DEFAULT_DENSITY: f32 = 0.1;
 const DEFAULT_SIZE: u64 = 1000;
@@ -32,7 +36,7 @@ fn generate_random_dag(size: u64, density: f32) -> IncrementalTopo<u64> {
     topo
 }
 
-fn criterion_benchmark(c: &mut Criterion) {
+fn criterion_benchmark(c: &mut Criterion<Perf>) {
     use rand::distributions::{Distribution, Uniform};
 
     let mut random_graph_different_density_group =
@@ -206,5 +210,15 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, criterion_benchmark);
+fn create_criterion_configuration() -> Criterion<Perf> {
+    Criterion::default().with_measurement(Perf::new(PerfCounterBuilderLinux::from_hardware_event(
+        HardwareEventType::Instructions,
+    )))
+}
+
+criterion_group! {
+    name = benches;
+    config = create_criterion_configuration();
+    targets = criterion_benchmark
+}
 criterion_main!(benches);
