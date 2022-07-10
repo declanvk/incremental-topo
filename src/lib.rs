@@ -11,7 +11,7 @@
 //!
 //! ## What is a Topological Order
 //!
-//! To define a topological order requires at least simple definitions of a
+//! To define a topological order requires at least a simple definition of a
 //! graph, and specifically a directed acyclic graph (DAG). A graph can be
 //! described as a pair of sets, `(V, E)` where `V` is the set of all nodes in
 //! the graph, and `E` is the set of edges. An edge is defined as a pair, `(m,
@@ -113,11 +113,11 @@ pub struct IncrementalTopo {
 /// later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct Index(ArenaIndex);
+pub struct Node(ArenaIndex);
 
-impl From<ArenaIndex> for Index {
+impl From<ArenaIndex> for Node {
     fn from(src: ArenaIndex) -> Self {
-        Index(src)
+        Node(src)
     }
 }
 
@@ -125,17 +125,17 @@ impl From<ArenaIndex> for Index {
 /// prevents ABA issues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct UnsafeIndex(usize);
+struct UnsafeIndex(usize);
 
-impl From<Index> for UnsafeIndex {
-    fn from(src: Index) -> Self {
+impl From<Node> for UnsafeIndex {
+    fn from(src: Node) -> Self {
         // extract index part of [`ArenaIndex`], discarding generation information
         UnsafeIndex(src.0.into_raw_parts().0)
     }
 }
 
-impl From<&Index> for UnsafeIndex {
-    fn from(src: &Index) -> Self {
+impl From<&Node> for UnsafeIndex {
+    fn from(src: &Node) -> Self {
         // extract index part of [`ArenaIndex`], discarding generation information
         UnsafeIndex(src.0.into_raw_parts().0)
     }
@@ -184,7 +184,7 @@ pub enum Error {
     /// This usually means that the node was deleted, but a reference was
     /// kept around after which is now invalid.
     NodeMissing,
-    /// Nodes may not transitively depend on themselves in a cyclic fashion
+    /// Cycles of nodes may not be formed in the graph.
     CycleDetected,
 }
 
@@ -194,10 +194,7 @@ impl fmt::Display for Error {
             Error::NodeMissing => {
                 write!(f, "The given node was not found in the topological order")
             },
-            Error::CycleDetected => write!(
-                f,
-                "Nodes may not transitively depend on themselves in a cyclic fashion"
-            ),
+            Error::CycleDetected => write!(f, "Cycles of nodes may not be formed in the graph"),
         }
     }
 }
@@ -221,13 +218,12 @@ impl IncrementalTopo {
         }
     }
 
-    /// Add a new node to the graph.
+    /// Add a new node to the graph and return a unique [`Node`] which
+    /// identifies it.
     ///
     /// Initially this node will not have any order relative to the values
     /// that are already in the graph. Only when relations are added
     /// with [`add_dependency`] will the order begin to matter.
-    ///
-    /// Returns false if the graph already contains the node.
     ///
     /// # Examples
     /// ```
@@ -253,20 +249,16 @@ impl IncrementalTopo {
     /// ```
     ///
     /// [`add_dependency`]: struct.IncrementalTopo.html#method.add_dependency
-    pub fn add_node(&mut self) -> Index {
+    pub fn add_node(&mut self) -> Node {
         let next_topo_order = self.last_topo_order + 1;
         self.last_topo_order = next_topo_order;
 
         let node_data = NodeData::new(next_topo_order);
 
-        Index(self.node_data.insert(node_data))
+        Node(self.node_data.insert(node_data))
     }
 
     /// Returns true if the graph contains the specified node.
-    ///
-    /// The passed node may be any borrowed form of the graph's node type,
-    /// but Hash and Eq on the borrowed form must match those for
-    /// the node type.
     ///
     /// # Examples
     /// ```
@@ -279,17 +271,13 @@ impl IncrementalTopo {
     /// assert!(dag.contains_node(cat));
     /// assert!(dag.contains_node(dog));
     /// ```
-    pub fn contains_node(&self, node: impl Borrow<Index>) -> bool {
+    pub fn contains_node(&self, node: impl Borrow<Node>) -> bool {
         let node = node.borrow();
         self.node_data.contains(node.0)
     }
 
     /// Attempt to remove node from graph, returning true if the node was
     /// contained and removed.
-    ///
-    /// The passed node may be any borrowed form of the graph's node type,
-    /// but Hash and Eq on the borrowed form must match those for
-    /// the node type.
     ///
     /// # Examples
     /// ```
@@ -305,7 +293,7 @@ impl IncrementalTopo {
     /// assert!(!dag.delete_node(cat));
     /// assert!(!dag.delete_node(dog));
     /// ```
-    pub fn delete_node(&mut self, node: Index) -> bool {
+    pub fn delete_node(&mut self, node: Node) -> bool {
         if !self.node_data.contains(node.0) {
             return false;
         }
@@ -345,10 +333,6 @@ impl IncrementalTopo {
     /// This link indicates an ordering constraint on the two nodes, now
     /// `prec` must always come before `succ` in the ordering.
     ///
-    /// The values of `prec` and `succ` may be any borrowed form of the
-    /// graph's node type, but Hash and Eq on the borrowed form must
-    /// match those for the node type.
-    ///
     /// Returns `Ok(true)` if the graph did not previously contain this
     /// dependency. Returns `Ok(false)` if the graph did have a previous
     /// dependency between these two nodes.
@@ -374,8 +358,8 @@ impl IncrementalTopo {
     /// ```
     pub fn add_dependency(
         &mut self,
-        prec: impl Borrow<Index>,
-        succ: impl Borrow<Index>,
+        prec: impl Borrow<Node>,
+        succ: impl Borrow<Node>,
     ) -> Result<bool, Error> {
         let prec = prec.borrow();
         let succ = succ.borrow();
@@ -434,10 +418,6 @@ impl IncrementalTopo {
     /// Returns false if either node is not found, or if there is no
     /// dependency.
     ///
-    /// The values of `prec` and `succ` may be any borrowed form of the
-    /// graph's node type, but Hash and Eq on the borrowed form must
-    /// match those for the node type.
-    ///
     /// # Examples
     /// ```
     /// use incremental_topo::IncrementalTopo;
@@ -455,7 +435,7 @@ impl IncrementalTopo {
     /// assert!(!dag.contains_dependency(&human, &mouse));
     /// assert!(!dag.contains_dependency(&cat, &horse));
     /// ```
-    pub fn contains_dependency(&self, prec: impl Borrow<Index>, succ: impl Borrow<Index>) -> bool {
+    pub fn contains_dependency(&self, prec: impl Borrow<Node>, succ: impl Borrow<Node>) -> bool {
         let prec = prec.borrow();
         let succ = succ.borrow();
 
@@ -476,10 +456,6 @@ impl IncrementalTopo {
     /// Returns false if either node is not found in the graph, or there is
     /// no transitive dependency.
     ///
-    /// The values of `prec` and `succ` may be any borrowed form of the
-    /// graph's node type, but Hash and Eq on the borrowed form must
-    /// match those for the node type.
-    ///
     /// # Examples
     /// ```
     /// use incremental_topo::IncrementalTopo;
@@ -499,8 +475,8 @@ impl IncrementalTopo {
     /// ```
     pub fn contains_transitive_dependency(
         &self,
-        prec: impl Borrow<Index>,
-        succ: impl Borrow<Index>,
+        prec: impl Borrow<Node>,
+        succ: impl Borrow<Node>,
     ) -> bool {
         let prec = prec.borrow();
         let succ = succ.borrow();
@@ -553,10 +529,6 @@ impl IncrementalTopo {
     ///
     /// Returns false is either node is not found in the graph.
     ///
-    /// The values of `prec` and `succ` may be any borrowed form of the
-    /// graph's node type, but Hash and Eq on the borrowed form must
-    /// match those for the node type.
-    ///
     /// Removing a dependency from the graph is an extremely simple
     /// operation, which requires no recalculation of the
     /// topological order. The ordering before and after a removal
@@ -580,11 +552,7 @@ impl IncrementalTopo {
     /// assert!(dag.delete_dependency(&human, dog));
     /// assert!(!dag.delete_dependency(&human, mouse));
     /// ```
-    pub fn delete_dependency(
-        &mut self,
-        prec: impl Borrow<Index>,
-        succ: impl Borrow<Index>,
-    ) -> bool {
+    pub fn delete_dependency(&mut self, prec: impl Borrow<Node>, succ: impl Borrow<Node>) -> bool {
         let prec = prec.borrow();
         let succ = succ.borrow();
 
@@ -642,7 +610,7 @@ impl IncrementalTopo {
         self.len() == 0
     }
 
-    /// Return an iterator over the nodes of the graph
+    /// Return an iterator over all the nodes of the graph in an unsorted order.
     ///
     /// # Examples
     /// ```
@@ -666,23 +634,24 @@ impl IncrementalTopo {
     ///
     /// assert_eq!(pairs, expected_pairs);
     /// ```
-    pub fn iter_unsorted(&self) -> impl Iterator<Item = (TopoOrder, Index)> + '_ {
+    pub fn iter_unsorted(&self) -> impl Iterator<Item = (TopoOrder, Node)> + '_ {
         self.node_data
             .iter()
             .map(|(index, node)| (node.topo_order, index.into()))
     }
 
     /// Return an iterator over the descendants of a node in the graph, in
-    /// an unosrted order.
-    ///
-    /// The passed node may be any borrowed form of the graph's node type,
-    /// but Hash and Eq on the borrowed form must match those for
-    /// the node type.
+    /// an unsorted order.
     ///
     /// Accessing the nodes in an unsorted order allows for faster access
     /// using a iterative DFS search. This is opposed to the order
     /// descendants iterator which requires the use of a binary heap
     /// to order the values.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the given node is not present in
+    /// the graph.
     ///
     /// # Examples
     /// ```
@@ -712,7 +681,7 @@ impl IncrementalTopo {
     /// ```
     pub fn descendants_unsorted(
         &self,
-        node: impl Borrow<Index>,
+        node: impl Borrow<Node>,
     ) -> Result<DescendantsUnsorted, Error> {
         let node = node.borrow();
         if !self.node_data.contains(node.0) {
@@ -735,14 +704,15 @@ impl IncrementalTopo {
     /// Return an iterator over descendants of a node in the graph, in a
     /// topologically sorted order.
     ///
-    /// The passed node may be any borrowed form of the graph's node type,
-    /// but Hash and Eq on the borrowed form must match those for
-    /// the node type.
-    ///
     /// Accessing the nodes in a sorted order requires the use of a
     /// BinaryHeap, so some performance penalty is paid there. If
     /// all is required is access to the descendants of a node, use
-    /// [`descendants_unsorted`].
+    /// [`IncrementalTopo::descendants_unsorted`].
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the given node is not present in
+    /// the graph.
     ///
     /// # Examples
     /// ```
@@ -763,10 +733,7 @@ impl IncrementalTopo {
     ///
     /// assert_eq!(ordered_nodes, vec![dog, cat, mouse]);
     /// ```
-    ///
-    /// [`descendants_unsorted`]:
-    /// struct.IncrementalTopo.html#method.descendants_unsorted
-    pub fn descendants(&self, node: impl Borrow<Index>) -> Result<Descendants, Error> {
+    pub fn descendants(&self, node: impl Borrow<Node>) -> Result<Descendants, Error> {
         let node = node.borrow();
         if !self.node_data.contains(node.0) {
             return Err(Error::NodeMissing);
@@ -797,10 +764,6 @@ impl IncrementalTopo {
 
     /// Compare two nodes present in the graph, topographically.
     ///
-    /// The values of `prec` and `succ` may be any borrowed form of the
-    /// graph's node type, but Hash and Eq on the borrowed form must
-    /// match those for the node type.
-    ///
     /// # Examples
     /// ```
     /// use incremental_topo::IncrementalTopo;
@@ -823,7 +786,7 @@ impl IncrementalTopo {
     /// assert_eq!(dag.topo_cmp(&cat, &dog), Greater);
     /// assert_eq!(dag.topo_cmp(&cat, &horse), Less);
     /// ```
-    pub fn topo_cmp(&self, node_a: impl Borrow<Index>, node_b: impl Borrow<Index>) -> Ordering {
+    pub fn topo_cmp(&self, node_a: impl Borrow<Node>, node_b: impl Borrow<Node>) -> Ordering {
         let node_a = node_a.borrow();
         let node_b = node_b.borrow();
 
@@ -936,7 +899,35 @@ impl IncrementalTopo {
     }
 }
 
-/// TODO
+/// An iterator over the descendants of a node in the graph, which outputs the
+/// nodes in an unsorted order with their topological ranking.
+///
+/// # Examples
+/// ```
+/// use incremental_topo::IncrementalTopo;
+/// use std::collections::HashSet;
+/// let mut dag = IncrementalTopo::new();
+///
+/// let cat = dag.add_node();
+/// let mouse = dag.add_node();
+/// let dog = dag.add_node();
+/// let human = dag.add_node();
+///
+/// assert!(dag.add_dependency(&human, &cat).unwrap());
+/// assert!(dag.add_dependency(&human, &dog).unwrap());
+/// assert!(dag.add_dependency(&dog, &cat).unwrap());
+/// assert!(dag.add_dependency(&cat, &mouse).unwrap());
+///
+/// let pairs = dag
+///     .descendants_unsorted(human)
+///     .unwrap()
+///     .collect::<HashSet<_>>();
+///
+/// let mut expected_pairs = HashSet::new();
+/// expected_pairs.extend(vec![(2, dog), (3, cat), (4, mouse)]);
+///
+/// assert_eq!(pairs, expected_pairs);
+/// ```
 #[derive(Debug)]
 pub struct DescendantsUnsorted<'a> {
     dag: &'a IncrementalTopo,
@@ -945,7 +936,7 @@ pub struct DescendantsUnsorted<'a> {
 }
 
 impl<'a> Iterator for DescendantsUnsorted<'a> {
-    type Item = (TopoOrder, Index);
+    type Item = (TopoOrder, Node);
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(key) = self.stack.pop() {
@@ -968,7 +959,28 @@ impl<'a> Iterator for DescendantsUnsorted<'a> {
     }
 }
 
-/// TODO
+/// An iterator over the descendants of a node in the graph, which outputs the
+/// nodes in a sorted order by their topological ranking.
+///
+/// # Examples
+/// ```
+/// use incremental_topo::IncrementalTopo;
+/// let mut dag = IncrementalTopo::new();
+///
+/// let cat = dag.add_node();
+/// let mouse = dag.add_node();
+/// let dog = dag.add_node();
+/// let human = dag.add_node();
+///
+/// assert!(dag.add_dependency(&human, &cat).unwrap());
+/// assert!(dag.add_dependency(&human, &dog).unwrap());
+/// assert!(dag.add_dependency(&dog, &cat).unwrap());
+/// assert!(dag.add_dependency(&cat, &mouse).unwrap());
+///
+/// let ordered_nodes = dag.descendants(human).unwrap().collect::<Vec<_>>();
+///
+/// assert_eq!(ordered_nodes, vec![dog, cat, mouse]);
+/// ```
 #[derive(Debug)]
 pub struct Descendants<'a> {
     dag: &'a IncrementalTopo,
@@ -977,7 +989,7 @@ pub struct Descendants<'a> {
 }
 
 impl<'a> Iterator for Descendants<'a> {
-    type Item = Index;
+    type Item = Node;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -1008,7 +1020,7 @@ mod tests {
     extern crate pretty_env_logger;
     use super::*;
 
-    fn get_basic_dag() -> Result<([Index; 7], IncrementalTopo), Error> {
+    fn get_basic_dag() -> Result<([Node; 7], IncrementalTopo), Error> {
         let mut dag = IncrementalTopo::new();
 
         let dog = dag.add_node();

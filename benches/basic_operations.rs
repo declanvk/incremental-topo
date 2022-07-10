@@ -14,7 +14,7 @@ fn generate_random_dag(
     rng: &mut ThreadRng,
     size: u64,
     density: f32,
-) -> (Vec<topo::Index>, IncrementalTopo) {
+) -> (Vec<topo::Node>, IncrementalTopo) {
     use rand::distributions::Bernoulli;
 
     assert!(0.0 < density && density <= 1.0);
