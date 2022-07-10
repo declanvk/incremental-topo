@@ -12,31 +12,29 @@ To use `incremental-topo`, first add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-incremental-topo = "0.1"
+incremental-topo = "0.1.2"
 ```
 
 Next, add this to your crate:
 
 ```rust
-extern crate incremental_topo;
-
-use incremental_topo::IncrTopo;
+use incremental_topo::IncrementalTopo;
 
 let mut dag = IncrementalTopo::new();
 
-dag.add_node("cat");
-dag.add_node("dog");
-dag.add_node("human");
+let cat = dag.add_node();
+let dog = dag.add_node();
+let human = dag.add_node();
 
-assert_eq!(dag.size(), 3);
+assert_eq!(dag.len(), 3);
 
-dag.add_dependency("human", "dog").unwrap();
-dag.add_dependency("human", "cat").unwrap();
-dag.add_dependency("dog", "cat").unwrap();
+dag.add_dependency(&human, &dog).unwrap();
+dag.add_dependency(&human, &cat).unwrap();
+dag.add_dependency(&dog, &cat).unwrap();
 
-let animal_order: Vec<_> = dag.descendants("human").unwrap().map(|v| *v).collect();
+let animal_order: Vec<_> = dag.descendants(&human).unwrap().collect();
 
-assert_eq!(animal_order, vec!["dog", "cat"]);
+assert_eq!(animal_order, vec![dog, cat]);
 ```
 
 See [documentation](https://docs.rs/incremental-topo) for more details.
