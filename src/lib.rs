@@ -177,7 +177,7 @@ impl Ord for NodeData {
 
 /// Different types of failures that can occur while updating or querying
 /// the graph.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     /// The given node was not found in the topological order.
     ///
@@ -356,6 +356,27 @@ impl IncrementalTopo {
     /// assert!(dag.add_dependency(&human, cat).unwrap());
     /// assert!(dag.add_dependency(&cat, mouse).unwrap());
     /// ```
+    ///
+    /// Here is an example which returns [`Error::CycleDetected`] when
+    /// introducing a cycle:
+    ///
+    /// ```
+    /// # use incremental_topo::{IncrementalTopo, Error};
+    /// let mut dag = IncrementalTopo::new();
+    ///
+    /// let n0 = dag.add_node();
+    /// assert_eq!(dag.add_dependency(&n0, &n0), Err(Error::CycleDetected));
+    ///
+    /// let n1 = dag.add_node();
+    ///
+    /// assert!(dag.add_dependency(&n0, &n1).unwrap());
+    /// assert_eq!(dag.add_dependency(&n1, &n0), Err(Error::CycleDetected));
+    ///
+    /// let n2 = dag.add_node();
+    ///
+    /// assert!(dag.add_dependency(&n1, &n2).unwrap());
+    /// assert_eq!(dag.add_dependency(&n2, &n0), Err(Error::CycleDetected));
+    /// ```
     pub fn add_dependency(
         &mut self,
         prec: impl Borrow<Node>,
@@ -369,12 +390,15 @@ impl IncrementalTopo {
             return Err(Error::CycleDetected);
         }
 
+        let succ_index = UnsafeIndex::from(succ);
+        let prec_index = UnsafeIndex::from(prec);
+
         // Insert forward edge
-        let mut no_prev_edge = self.node_data[prec.0].children.insert(succ.into());
+        let mut no_prev_edge = self.node_data[prec.0].children.insert(succ_index);
         let upper_bound = self.node_data[prec.0].topo_order;
 
         // Insert backward edge
-        no_prev_edge = no_prev_edge && self.node_data[succ.0].parents.insert(prec.into());
+        no_prev_edge = no_prev_edge && self.node_data[succ.0].parents.insert(prec_index);
         let lower_bound = self.node_data[succ.0].topo_order;
 
         // If edge already exists short circuit
@@ -398,10 +422,20 @@ impl IncrementalTopo {
 
             // Walk changes forward from the succ, checking for any cycles that would be
             // introduced
-            let change_forward = self.dfs_forward(succ.into(), &mut visited, upper_bound)?;
+            let change_forward = match self.dfs_forward(succ_index, &mut visited, upper_bound) {
+                Ok(change_set) => change_set,
+                Err(err) => {
+                    // need to remove parent + child info that was previously added
+
+                    self.node_data[prec.0].children.remove(&succ_index);
+                    self.node_data[succ.0].parents.remove(&prec_index);
+
+                    return Err(err);
+                },
+            };
             log::trace!("Change forward: {:?}", change_forward);
             // Walk backwards from the prec
-            let change_backward = self.dfs_backward(prec.into(), &mut visited, lower_bound);
+            let change_backward = self.dfs_backward(prec_index, &mut visited, lower_bound);
             log::trace!("Change backward: {:?}", change_backward);
 
             self.reorder_nodes(change_forward, change_backward);
