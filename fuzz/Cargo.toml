@@ -1,0 +1,26 @@
+[package]
+name = "incremental-topo-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = { version = "0.4.3" }
+
+[dependencies.incremental-topo]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "basic_operations"
+path = "fuzz_targets/basic_operations.rs"
+test = false
+doc = false
