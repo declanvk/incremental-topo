@@ -798,6 +798,10 @@ impl IncrementalTopo {
 
     /// Compare two nodes present in the graph, topographically.
     ///
+    /// # Panics
+    ///
+    /// - If either node given is not present in the graph.
+    ///
     /// # Examples
     /// ```
     /// use incremental_topo::IncrementalTopo;

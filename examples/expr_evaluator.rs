@@ -1,19 +1,66 @@
-extern crate failure;
-extern crate incremental_topo;
-extern crate ordered_float;
-
-use failure::Fail;
 use incremental_topo::{self as topo, IncrementalTopo};
-use ordered_float::OrderedFloat;
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     fmt,
+    hash::Hash,
     rc::Rc,
 };
 
 type InnerValue = f64;
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
-struct Value(OrderedFloat<InnerValue>);
+#[derive(Debug, Copy, Clone)]
+struct Value(InnerValue);
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Value {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let lhs = self.0;
+        let rhs = other.0;
+
+        match lhs.partial_cmp(&rhs) {
+            Some(ord) => ord,
+            None => {
+                if lhs.is_nan() {
+                    if rhs.is_nan() {
+                        Ordering::Equal
+                    } else {
+                        Ordering::Greater
+                    }
+                } else {
+                    Ordering::Less
+                }
+            },
+        }
+    }
+}
+
+impl PartialEq for Value {
+    #[inline]
+    fn eq(&self, other: &Value) -> bool {
+        if self.0.is_nan() {
+            other.0.is_nan()
+        } else {
+            <InnerValue as PartialEq<InnerValue>>::eq(&self.0, &other.0)
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.0.is_nan() {
+            self.0.to_bits().hash(state);
+        } else {
+            InnerValue::NAN.to_bits().hash(state);
+        }
+    }
+}
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -29,37 +76,37 @@ impl From<topo::Error> for Error {
 
 impl From<InnerValue> for Value {
     fn from(src: InnerValue) -> Self {
-        Value((src as InnerValue).into())
+        Value(src as InnerValue)
     }
 }
 
 impl From<f32> for Value {
     fn from(src: f32) -> Self {
-        Value((src as InnerValue).into())
+        Value(src as InnerValue)
     }
 }
 
 impl From<i64> for Value {
     fn from(src: i64) -> Self {
-        Value((src as InnerValue).into())
+        Value(src as InnerValue)
     }
 }
 
 impl From<i32> for Value {
     fn from(src: i32) -> Self {
-        Value((src as InnerValue).into())
+        Value(src as InnerValue)
     }
 }
 
 impl From<u64> for Value {
     fn from(src: u64) -> Self {
-        Value((src as InnerValue).into())
+        Value(src as InnerValue)
     }
 }
 
 impl From<u32> for Value {
     fn from(src: u32) -> Self {
-        Value((src as InnerValue).into())
+        Value(src as InnerValue)
     }
 }
 
@@ -187,16 +234,16 @@ impl Assignments {
 
         // Get all descendants of current target + target
         for descendant in self.ordering.descendants(&target)? {
-            let descendant_expr = self.bindings.get(&descendant.into()).unwrap();
+            let descendant_expr = self.bindings.get(&descendant).unwrap();
             let new_value = descendant_expr.evaluate(&self.values)?;
-            self.values.insert(descendant.into(), new_value).unwrap();
+            self.values.insert(descendant, new_value).unwrap();
         }
 
         Ok(top_value)
     }
 
     fn read(&self, sym: &Symbol) -> Option<Value> {
-        self.values.get(&sym).cloned()
+        self.values.get(sym).cloned()
     }
 }
 
@@ -212,10 +259,10 @@ impl BinopType {
     fn evaluate(&self, left: Value, right: Value) -> Value {
         use BinopType::*;
         let inner: InnerValue = match self {
-            Add => (left.0).0 + (right.0).0,
-            Mult => (left.0).0 * (right.0).0,
-            Sub => (left.0).0 - (right.0).0,
-            Div => (left.0).0 / (right.0).0,
+            Add => (left.0) + (right.0),
+            Mult => (left.0) * (right.0),
+            Sub => (left.0) - (right.0),
+            Div => (left.0) / (right.0),
         };
 
         inner.into()
@@ -306,9 +353,7 @@ impl Expr {
 
     fn find_free_vars(&self) -> HashSet<Symbol> {
         let mut free_vars = HashSet::new();
-        let mut expr_stack = Vec::<&Expr>::new();
-
-        expr_stack.push(self);
+        let mut expr_stack = vec![self];
 
         // DFS search for variable nodes
         while let Some(next) = expr_stack.pop() {
@@ -344,7 +389,7 @@ impl Expr {
                 Ok(t.evaluate(left_value, right_value))
             },
             Lit(v) => Ok(*v),
-            Var(sym) => subs.get(&sym).cloned().ok_or(Error::UnsubstitutedVar(*sym)),
+            Var(sym) => subs.get(sym).cloned().ok_or(Error::UnsubstitutedVar(*sym)),
             Unop(f, expr) => {
                 let value = expr.evaluate(subs)?;
 
@@ -366,18 +411,36 @@ impl From<Value> for Rc<Expr> {
     }
 }
 
-#[derive(Fail, Debug)]
+#[derive(Debug)]
 enum Error {
-    #[fail(display = "Binding already found in assignments")]
     DuplicateBinding,
-    #[fail(display = "Binding not found for {:?}", _0)]
     MissingBinding(Symbol),
-    #[fail(display = "Binding depends on its own value")]
     RecursiveDependence,
-    #[fail(display = "Unable to substitute variable ({:?}) in evaluation", _0)]
     UnsubstitutedVar(Symbol),
-    #[fail(display = "{}", _0)]
-    Topo(#[cause] topo::Error),
+    Topo(topo::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::DuplicateBinding => write!(f, "Binding already found in assignments"),
+            Error::MissingBinding(sym) => write!(f, "Binding not found for {:?}", sym),
+            Error::RecursiveDependence => write!(f, "Binding depends on its own value"),
+            Error::UnsubstitutedVar(sym) => {
+                write!(f, "Unable to substitute variable ({:?}) in evaluation", sym)
+            },
+            Error::Topo(topo_err) => <topo::Error as fmt::Display>::fmt(topo_err, f),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Topo(topo_err) => Some(topo_err),
+            _ => None,
+        }
+    }
 }
 
 fn main() {
