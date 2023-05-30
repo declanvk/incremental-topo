@@ -10,7 +10,7 @@ edition = "2021"
 keywords = ["data-structures", "dag", "graph", "incremental", "topological"]
 categories = ["algorithms", "data-structures"]
 license = "MIT/Apache-2.0"
-rust-version = "1.60"  # MSRV
+rust-version = "1.64"  # MSRV
 
 [dependencies]
 fnv = "1.0.7"
@@ -21,7 +21,7 @@ log = "0.4.17"
 pretty_env_logger = "0.5.0"
 criterion = "0.4.0"
 rand = "0.8.5"
-criterion-perf-events = "0.3.0"
+criterion-perf-events = "0.4.0"
 perfcnt = "0.8.0"
 
 [[bench]]
