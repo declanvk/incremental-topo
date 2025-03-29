@@ -9,7 +9,7 @@ readme = "README.md"
 edition = "2024"
 keywords = ["data-structures", "dag", "graph", "incremental", "topological"]
 categories = ["algorithms", "data-structures"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 rust-version = "1.85" # MSRV
 
 [dependencies]
