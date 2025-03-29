@@ -13,19 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        run: rustup toolchain install stable
 
-      - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
+      - name: Run cargo test
+        run: cargo +stable check
 
   test:
     name: Test Suite
@@ -38,22 +32,15 @@ jobs:
           - beta
           - nightly
           - "1.85"  # MSRV
-
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install ${{ matrix.rust }} toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
+        run: rustup toolchain install ${{ matrix.rust }}
 
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+        run: cargo +${{ matrix.rust }} test
 
   test_miri:
     name: Test Suite (Miri)
@@ -61,27 +48,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: miri
+        run: rustup toolchain install --component miri nightly
 
       - name: Run cargo miri setup
-        uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: setup
+        run: cargo +nightly miri setup
 
       - name: Run cargo miri test
-        uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: test
+        run: cargo +nightly miri test
 
   lints:
     name: Lints
@@ -89,24 +65,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
+      - name: Install nightly toolchain
+        run: rustup toolchain install --component rustfmt nightly
 
       - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo +nightly fmt --all -- --check
+
+      - name: Install stable toolchain
+        run: rustup toolchain install --component clippy stable
 
       - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+        run: cargo +stable clippy -- -D warnings
