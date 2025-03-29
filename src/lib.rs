@@ -973,7 +973,7 @@ pub struct DescendantsUnsorted<'a> {
     visited: FnvHashSet<UnsafeIndex>,
 }
 
-impl<'a> Iterator for DescendantsUnsorted<'a> {
+impl Iterator for DescendantsUnsorted<'_> {
     type Item = (TopoOrder, Node);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1026,7 +1026,7 @@ pub struct Descendants<'a> {
     visited: FnvHashSet<UnsafeIndex>,
 }
 
-impl<'a> Iterator for Descendants<'a> {
+impl Iterator for Descendants<'_> {
     type Item = Node;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1098,11 +1098,11 @@ mod tests {
         let human = dag.add_node();
 
         assert_eq!(dag.len(), 5);
-        assert!(dag.contains_node(&dog));
-        assert!(dag.contains_node(&cat));
-        assert!(dag.contains_node(&mouse));
-        assert!(dag.contains_node(&lion));
-        assert!(dag.contains_node(&human));
+        assert!(dag.contains_node(dog));
+        assert!(dag.contains_node(cat));
+        assert!(dag.contains_node(mouse));
+        assert!(dag.contains_node(lion));
+        assert!(dag.contains_node(human));
     }
 
     #[test]
@@ -1115,13 +1115,13 @@ mod tests {
 
         assert_eq!(dag.len(), 3);
 
-        assert!(dag.contains_node(&dog));
-        assert!(dag.contains_node(&cat));
-        assert!(dag.contains_node(&human));
+        assert!(dag.contains_node(dog));
+        assert!(dag.contains_node(cat));
+        assert!(dag.contains_node(human));
 
         assert!(dag.delete_node(human));
         assert_eq!(dag.len(), 2);
-        assert!(!dag.contains_node(&human));
+        assert!(!dag.contains_node(human));
     }
 
     #[test]
@@ -1134,11 +1134,11 @@ mod tests {
 
         assert_eq!(dag.len(), 3);
 
-        assert!(dag.add_dependency(&n1, &n2).is_ok());
-        assert!(dag.add_dependency(&n2, &n3).is_ok());
+        assert!(dag.add_dependency(n1, n2).is_ok());
+        assert!(dag.add_dependency(n2, n3).is_ok());
 
-        assert!(dag.add_dependency(&n3, &n1).is_err());
-        assert!(dag.add_dependency(&n1, &n1).is_err());
+        assert!(dag.add_dependency(n3, n1).is_err());
+        assert!(dag.add_dependency(n1, n1).is_err());
     }
 
     #[test]
@@ -1146,7 +1146,7 @@ mod tests {
         let ([dog, cat, mouse, _, human, _, grass], dag) = get_basic_dag().unwrap();
 
         let children: FnvHashSet<_> = dag
-            .descendants_unsorted(&human)
+            .descendants_unsorted(human)
             .unwrap()
             .map(|(_, v)| v)
             .collect();
@@ -1183,11 +1183,11 @@ mod tests {
 
         assert_eq!(dag.len(), 3);
 
-        dag.add_dependency(&human, &dog).unwrap();
-        dag.add_dependency(&human, &cat).unwrap();
-        dag.add_dependency(&dog, &cat).unwrap();
+        dag.add_dependency(human, dog).unwrap();
+        dag.add_dependency(human, cat).unwrap();
+        dag.add_dependency(dog, cat).unwrap();
 
-        let animal_order: Vec<_> = dag.descendants(&human).unwrap().collect();
+        let animal_order: Vec<_> = dag.descendants(human).unwrap().collect();
 
         assert_eq!(animal_order, vec![dog, cat]);
     }
@@ -1201,13 +1201,13 @@ mod tests {
         let dog = dag.add_node();
         let human = dag.add_node();
 
-        assert!(dag.add_dependency(&human, &cat).unwrap());
-        assert!(dag.add_dependency(&human, &dog).unwrap());
-        assert!(dag.add_dependency(&dog, &cat).unwrap());
-        assert!(dag.add_dependency(&cat, &mouse).unwrap());
+        assert!(dag.add_dependency(human, cat).unwrap());
+        assert!(dag.add_dependency(human, dog).unwrap());
+        assert!(dag.add_dependency(dog, cat).unwrap());
+        assert!(dag.add_dependency(cat, mouse).unwrap());
 
         let pairs = dag
-            .descendants_unsorted(&human)
+            .descendants_unsorted(human)
             .unwrap()
             .collect::<FnvHashSet<_>>();
 
@@ -1228,13 +1228,13 @@ mod tests {
         let human = dag.add_node();
         let horse = dag.add_node();
 
-        assert!(dag.add_dependency(&human, &cat).unwrap());
-        assert!(dag.add_dependency(&human, &dog).unwrap());
-        assert!(dag.add_dependency(&dog, &cat).unwrap());
-        assert!(dag.add_dependency(&cat, &mouse).unwrap());
+        assert!(dag.add_dependency(human, cat).unwrap());
+        assert!(dag.add_dependency(human, dog).unwrap());
+        assert!(dag.add_dependency(dog, cat).unwrap());
+        assert!(dag.add_dependency(cat, mouse).unwrap());
 
-        assert_eq!(dag.topo_cmp(&human, &mouse), Less);
-        assert_eq!(dag.topo_cmp(&cat, &dog), Greater);
-        assert_eq!(dag.topo_cmp(&cat, &horse), Less);
+        assert_eq!(dag.topo_cmp(human, mouse), Less);
+        assert_eq!(dag.topo_cmp(cat, dog), Greater);
+        assert_eq!(dag.topo_cmp(cat, horse), Less);
     }
 }

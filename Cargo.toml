@@ -6,21 +6,21 @@ description = "Data structure to maintain an incremental topological ordering ov
 repository = "https://github.com/declanvk/incremental-topo/"
 documentation = "https://docs.rs/incremental-topo/"
 readme = "README.md"
-edition = "2021"
+edition = "2024"
 keywords = ["data-structures", "dag", "graph", "incremental", "topological"]
 categories = ["algorithms", "data-structures"]
 license = "MIT/Apache-2.0"
-rust-version = "1.64"  # MSRV
+rust-version = "1.85" # MSRV
 
 [dependencies]
 fnv = "1.0.7"
-generational-arena = "0.2.8"
-log = "0.4.17"
+generational-arena = "0.2.9"
+log = "0.4.27"
 
 [dev-dependencies]
 pretty_env_logger = "0.5.0"
 criterion = "0.5.1"
-rand = "0.8.5"
+rand = "0.9.0"
 criterion-perf-events = "0.4.0"
 perfcnt = "0.8.0"
 
