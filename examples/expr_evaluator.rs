@@ -149,14 +149,17 @@ impl Assignments {
         let mut added_deps = Vec::<Symbol>::new();
 
         for var in free_vars.into_iter() {
-            if let Err(err) = self.ordering.add_dependency(&var, &target) {
-                for added in added_deps {
-                    self.ordering.delete_dependency(&added, &target);
-                }
+            match self.ordering.add_dependency(var, target) {
+                Err(err) => {
+                    for added in added_deps {
+                        self.ordering.delete_dependency(added, target);
+                    }
 
-                return Err(err)?;
-            } else {
-                added_deps.push(var);
+                    return Err(err)?;
+                },
+                _ => {
+                    added_deps.push(var);
+                },
             }
         }
 
@@ -197,26 +200,29 @@ impl Assignments {
 
         for var in vars_to_delete {
             // This must succeed, deletion is trivial
-            self.ordering.delete_dependency(var, &target);
+            self.ordering.delete_dependency(var, target);
         }
 
         let mut added_deps = Vec::new();
         for var in vars_to_add {
-            if let Err(err) = self.ordering.add_dependency(var, &target) {
-                // Undo those relations that were added
-                for added in added_deps {
-                    self.ordering.delete_dependency(&added, &target);
-                }
+            match self.ordering.add_dependency(var, target) {
+                Err(err) => {
+                    // Undo those relations that were added
+                    for added in added_deps {
+                        self.ordering.delete_dependency(added, target);
+                    }
 
-                // Undo those relations that were deleted
-                for deleted in old_vars.difference(&new_vars) {
-                    // This must succeed?
-                    self.ordering.add_dependency(deleted, &target)?;
-                }
+                    // Undo those relations that were deleted
+                    for deleted in old_vars.difference(&new_vars) {
+                        // This must succeed?
+                        self.ordering.add_dependency(deleted, target)?;
+                    }
 
-                return Err(err)?;
-            } else {
-                added_deps.push(*var);
+                    return Err(err)?;
+                },
+                _ => {
+                    added_deps.push(*var);
+                },
             }
         }
 
@@ -233,7 +239,7 @@ impl Assignments {
         self.values.insert(target, top_value);
 
         // Get all descendants of current target + target
-        for descendant in self.ordering.descendants(&target)? {
+        for descendant in self.ordering.descendants(target)? {
             let descendant_expr = self.bindings.get(&descendant).unwrap();
             let new_value = descendant_expr.evaluate(&self.values)?;
             self.values.insert(descendant, new_value).unwrap();

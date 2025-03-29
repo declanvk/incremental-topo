@@ -37,7 +37,7 @@ jobs:
           - stable
           - beta
           - nightly
-          - '1.64'  # MSRV
+          - "1.85"  # MSRV
 
     steps:
       - name: Checkout sources

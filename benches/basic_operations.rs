@@ -1,11 +1,10 @@
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use std::hint::black_box;
+
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use criterion_perf_events::Perf;
 use incremental_topo::{self as topo, IncrementalTopo};
 use perfcnt::linux::{HardwareEventType, PerfCounterBuilderLinux};
-use rand::{
-    distributions::Distribution,
-    prelude::{SliceRandom, ThreadRng},
-};
+use rand::{distr::Distribution, prelude::ThreadRng, seq::IndexedRandom};
 
 const DEFAULT_DENSITY: f32 = 0.1;
 const DEFAULT_SIZE: u64 = 1000;
@@ -15,7 +14,7 @@ fn generate_random_dag(
     size: u64,
     density: f32,
 ) -> (Vec<topo::Node>, IncrementalTopo) {
-    use rand::distributions::Bernoulli;
+    use rand::distr::Bernoulli;
 
     assert!(0.0 < density && density <= 1.0);
     let dist = Bernoulli::new(density.into()).unwrap();
@@ -36,7 +35,7 @@ fn generate_random_dag(
 }
 
 fn criterion_benchmark(c: &mut Criterion<Perf>) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut mutate_graph_group = c.benchmark_group("mutate_graph");
 
@@ -156,7 +155,9 @@ fn criterion_benchmark(c: &mut Criterion<Perf>) {
         b.iter_batched(
             || nodes.choose(&mut rng).unwrap(),
             |i| {
-                dag.descendants_unsorted(i).unwrap().for_each(|v| drop(v));
+                dag.descendants_unsorted(i).unwrap().for_each(|v| {
+                    black_box(v);
+                });
             },
             BatchSize::SmallInput,
         );
@@ -168,7 +169,9 @@ fn criterion_benchmark(c: &mut Criterion<Perf>) {
         b.iter_batched(
             || nodes.choose(&mut rng).unwrap(),
             |i| {
-                dag.descendants(i).unwrap().for_each(|v| drop(v));
+                dag.descendants(i).unwrap().for_each(|v| {
+                    black_box(v);
+                });
             },
             BatchSize::SmallInput,
         );

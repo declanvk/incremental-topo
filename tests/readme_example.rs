@@ -10,11 +10,11 @@ fn readme_contents() {
 
     assert_eq!(dag.len(), 3);
 
-    dag.add_dependency(&human, &dog).unwrap();
-    dag.add_dependency(&human, &cat).unwrap();
-    dag.add_dependency(&dog, &cat).unwrap();
+    dag.add_dependency(human, dog).unwrap();
+    dag.add_dependency(human, cat).unwrap();
+    dag.add_dependency(dog, cat).unwrap();
 
-    let animal_order: Vec<_> = dag.descendants(&human).unwrap().collect();
+    let animal_order: Vec<_> = dag.descendants(human).unwrap().collect();
 
     assert_eq!(animal_order, vec![dog, cat]);
 }
