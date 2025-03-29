@@ -12,7 +12,7 @@ To use `incremental-topo`, first add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-incremental-topo = "0.2.1"
+incremental-topo = "0.3.0"
 ```
 
 Next, add this to your crate:
